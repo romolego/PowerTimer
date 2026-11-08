@@ -1,0 +1,11 @@
+/bin/
+/dist/
+__pycache__/
+*.pyc
+*.log
+*.tmp
+api.json
+timer.json
+settings.json
+instance.lock
+.vs/

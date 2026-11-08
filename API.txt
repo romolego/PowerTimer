@@ -1,0 +1,123 @@
+POWER TIMER 2.3.0 — локальный HTTP API v1
+
+CLI
+timerctl.exe status          — состояние и остаток.
+timerctl.exe after 30m       — создать/заменить таймер.
+timerctl.exe after 3.5h      — дробная длительность, точка в CLI.
+timerctl.exe pause
+timerctl.exe resume
+timerctl.exe add 10m
+timerctl.exe cancel
+timerctl.exe show | widget | tray | settings
+timerctl.exe config          — сохранённые настройки.
+timerctl.exe exit            — отменить таймер и выйти.
+
+Суффиксы s/m/h, без суффикса — секунды. Диапазон 1–604800 секунд.
+JSON в UTF-8; код выхода 0 = успех, 1 = ошибка. Если приложение не запущено,
+CLI возвращает ошибку. Аргумент --test выбирает только тестовый экземпляр.
+Пример для установленной копии:
+$ctl = Join-Path $env:LOCALAPPDATA 'PowerTimer\bin\timerctl.exe'
+& $ctl status
+
+Обнаружение
+Каждый запуск создаёт %LOCALAPPDATA%\PowerTimer\api.json с полями:
+version, baseUrl, token, pid, testMode, executable.
+Предпочтительный порт 47821, при занятости выбирается свободный.
+Читайте адрес и ключ из файла заново после перезапуска. После сбоя файл
+может быть устаревшим. Не публикуйте его и не встраивайте токен в код.
+
+$api = Get-Content (Join-Path $env:LOCALAPPDATA 'PowerTimer\api.json') -Raw | ConvertFrom-Json
+$headers = @{ Authorization = 'Bearer ' + $api.token }
+Invoke-RestMethod -Uri ($api.baseUrl + 'v1/status') -Headers $headers
+
+Маршруты
+GET    /v1/status          — снимок состояния, без выполнения действия питания.
+POST   /v1/timer           — {"seconds":3600}; создать/заменить таймер.
+DELETE /v1/timer           — отменить; повторная отмена допустима.
+POST   /v1/pause           — {}; заморозить остаток.
+POST   /v1/resume          — {}; продолжить паузу.
+POST   /v1/extend          — {"seconds":600}; добавить к running/paused.
+POST   /v1/ui              — {"mode":"show"}, "widget", "tray", "settings", "restore".
+GET    /v1/settings        — {"settings":{...}}.
+POST   /v1/settings        — частичное изменение настроек, ответ {"settings":{...}}.
+POST   /v1/widget          — {"expanded":true|false}; горизонтальная панель управления.
+POST   /v1/widget/reset    — {}; исходное положение на рабочем экране.
+POST   /v1/app/exit        — {}; отменить таймер и завершить приложение.
+
+Для всех запросов нужен Authorization: Bearer <token>.
+Для POST нужен Content-Type: application/json. Тело — JSON-объект.
+seconds — JSON-число от 1 до 604800, строка и boolean не допускаются.
+При продлении итоговый остаток также не должен превышать 604800 секунд.
+widget без активного таймера открывает главное окно. restore возвращает
+последнее представление или уже открытый диалог; его использует повторный запуск.
+
+Успех: HTTP 200 и снимок таймера, кроме настроек. Ошибка: {"error":"описание"}.
+400 — неверный аргумент/JSON; 401 — нет корректного ключа;
+403 — запрещённый Origin или Host; 404 — неизвестный путь/метод;
+408 — превышено время чтения; 409 — неподходящее состояние, выход из
+приложения, задержка в очереди более 3 секунд или открытый черновик настроек;
+413 — превышен размер; 415 — неверный Content-Type; 500 — внутренняя ошибка;
+503 — сервер занят или завершает работу.
+При сетевом таймауте прочитайте status перед повторением изменяющей команды:
+отсутствие ответа само по себе не доказывает, что действие не применилось.
+
+Снимок состояния
+version: 1; appVersion: "2.3.0".
+state: idle / running / paused / completed / error.
+remainingSeconds: остаток в секундах, округлённый вверх.
+remaining: HH:MM:SS; null без активного таймера. Часы могут иметь 3 цифры.
+deadlineUtc, deadlineLocal: ISO 8601 для running; иначе null.
+totalSeconds: длительность; action: "shutdown"; testMode: true/false.
+ui: show / widget / tray; settingsOpen, customOpen: открытые диалоги.
+selectedSeconds, selectedIndex: выбранная длительность и индекс (0–6 / своё время 7).
+widgetExpanded: фактическое состояние панели управления.
+widgetWidth, widgetHeight, widgetLeft, widgetTop: логические пиксели WPF.
+widgetOpacity: 0.6–1.0; widgetTopmost: true/false.
+effectiveTheme: dark / light; keepAwake, sleepPreventionActive: true/false.
+message: сообщение состояния двигателя.
+
+completed означает передачу запроса Windows, а не подтверждённое физическое
+выключение. В --test запрос только имитируется. Отсчёт монотонный;
+deadline пересчитывается по текущим системным часам. API и UI используют
+один таймер. Параллельные изменения выполняются последовательно.
+
+Настройки POST /v1/settings
+theme                  "dark" / "light" / "system".
+defaultSeconds         целое 60–604800, кратное 60.
+presetMinutes          ровно 7 целых чисел, каждое 1–10080.
+keepAwake              bool: запрет автоматического сна при running.
+closeToTray            bool: закрытие окна скрывает в трей.
+minimizeToTray         bool: сворачивание скрывает в трей.
+startWithWindows       bool: Run текущего пользователя, без повышения прав.
+startInTray            bool: при --startup скрыть окно.
+notifyBeforeShutdown   bool: уведомить за минуту.
+widgetTopmost          bool: поверх других окон.
+widgetSize             "small" / "medium" / "large".
+widgetOpacity          целое 60–100, проценты.
+rememberWidgetPosition bool: сохранять положение.
+addSeconds             устаревшее поле совместимости; целое 60–604800,
+                       кратное 60. Интерфейс не использует его. Для
+                       продления передавайте seconds в /v1/extend.
+
+Проверяется весь запрос до сохранения; некорректное/неизвестное поле
+отклоняет запрос целиком. Не отправляйте обратно весь GET: в нём есть
+служебные поля. Изменение времени по умолчанию не меняет активный таймер.
+Открытый диалог настроек блокирует запись через API (409) до закрытия.
+
+Ограничения доступа
+Только IPv4 127.0.0.1, без доступа из сети и правил брандмауэра.
+Используйте Host из baseUrl, не localhost. Origin запрещён, CORS нет.
+Заголовки до 8 КиБ, тело до 16 КиБ, одновременно до 8 соединений.
+Общий срок чтения 5 секунд, отдельный блокирующий read до 2,5 секунд.
+Ключ даёт управление таймером; это не защита от программ с теми же
+правами пользователя, которые могут прочитать api.json.
+
+Тесты
+PowerTimer.exe --test — отдельный каталог %LOCALAPPDATA%\PowerTimer-Test,
+предпочтительный порт 47822, подставное выключение, без изменения реестра
+автозапуска и без запрета сна. Маршруты /v1/test/* доступны только в --test.
+GET /v1/test/ui — снимки контролов и диагностика обновлений.
+POST /v1/test/interaction — действия над видимыми/доступными контролами WPF.
+POST /v1/test/render — PNG в тестовый каталог, {} или {"suffix":"preview"}.
+Полный запуск: powershell -NoProfile -ExecutionPolicy Bypass -File .\run-tests.ps1
+Сведения об испытаниях и их границах — DEVELOPMENT.md в репозитории.
