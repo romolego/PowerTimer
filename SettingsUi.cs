@@ -10,6 +10,7 @@ using Microsoft.Win32;
 namespace PowerTimer {
  public sealed partial class TimerApplication {
   const string RunKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+  const string ResetPositionCaption = "Вернуть в угол";
   bool settingsDraftLoaded, loadingSettings, resetWidgetOnSave;
   string ReadRunValue() { using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) return key == null ? null : key.GetValue("PowerTimer") as string; }
   bool GetAutostart() {
@@ -57,6 +58,10 @@ namespace PowerTimer {
    };
    Find<Button>(settings, "SettingsClose").Click += delegate { CancelSettings(); };
    Find<Button>(settings, "CancelSettingsButton").Click += delegate { CancelSettings(); };
+   var explanation = Find<TextBlock>(settings, "DefaultPresetExplanation");
+   Find<Button>(settings, "DefaultPresetHelp").Click += delegate {
+    explanation.Visibility = explanation.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+   };
    Find<Button>(settings, "SaveSettingsButton").Click += delegate {
     try {
      Preferences next = ReadSettingsDraft(); CommitPreferences(next, resetWidgetOnSave);
@@ -76,7 +81,7 @@ namespace PowerTimer {
     Find<TextBlock>(settings, "WidgetOpacityText").Text = ((int)Find<Slider>(settings, "WidgetOpacitySlider").Value) + "%";
    };
    Find<Button>(settings, "ResetWidgetPosition").Click += delegate {
-    resetWidgetOnSave = true; Find<Button>(settings, "ResetWidgetPosition").Content = "Сбросить положение ✓";
+    resetWidgetOnSave = true; Find<Button>(settings, "ResetWidgetPosition").Content = ResetPositionCaption + " ✓";
    };
   }
   void PrepareSettingsDraft() {
@@ -93,7 +98,8 @@ namespace PowerTimer {
     SelectTag("WidgetSizeSelect", prefs.widgetSize); Find<Slider>(settings, "WidgetOpacitySlider").Value = prefs.widgetOpacity;
     Find<TextBlock>(settings, "WidgetOpacityText").Text = prefs.widgetOpacity + "%";
     Find<TextBlock>(settings, "SettingsError").Text = ""; Find<TextBlock>(settings, "SettingsError").Visibility = Visibility.Collapsed;
-    Find<Button>(settings, "ResetWidgetPosition").Content = "Сбросить положение";
+    Find<TextBlock>(settings, "DefaultPresetExplanation").Visibility = Visibility.Collapsed;
+    Find<Button>(settings, "ResetWidgetPosition").Content = ResetPositionCaption;
     resetWidgetOnSave = false; settingsDraftLoaded = true;
    } finally { loadingSettings = false; }
   }

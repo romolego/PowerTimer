@@ -227,7 +227,7 @@ namespace PowerTimer {
    Store.Write(Path.Combine(folder, "api.json"), new { version = 1, baseUrl = "http://127.0.0.1:" + api.Port + "/", token = token, pid = Process.GetCurrentProcess().Id, testMode = test, executable = Assembly.GetExecutingAssembly().Location });
    initialized = true; Persist(true); UpdateSleep(); Update(); ScheduleTick();
    if (hidden || (startup && prefs.startInTray)) HideAll(); else if (compact || prefs.widgetMode) ShowWidget(); else ShowMain();
-   Log(test ? "Started TEST 2.5.1 (no power actions)" : "Started 2.5.1");
+   Log(test ? "Started TEST 2.5.2 (no power actions)" : "Started 2.5.2");
   }
   void OnUi(Action action) {
    if (!exiting && !exitPending && !app.Dispatcher.HasShutdownStarted)
@@ -406,7 +406,7 @@ namespace PowerTimer {
   }
   object Snapshot() {
    Size size = WidgetSize();
-   return new { version = 1, appVersion = "2.5.1", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
+   return new { version = 1, appVersion = "2.5.2", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
     deadlineUtc = engine.Deadline.HasValue ? engine.Deadline.Value.ToString("o") : null, deadlineLocal = engine.Deadline.HasValue ? engine.Deadline.Value.ToLocalTime().ToString("o") : null,
     totalSeconds = engine.Total, action = engine.State == "idle" ? selectedPowerAction : engine.ScheduledAction, testMode = test, ui = main.IsVisible ? "show" : widget.IsVisible ? "widget" : "tray", settingsOpen = Visible(settings), customOpen = Visible(custom), selectedSeconds = selectedSeconds, selectedIndex = selectedIndex,
     widgetExpanded = widgetExpanded, widgetWidth = size.Width, widgetHeight = size.Height, widgetLeft = widget.Left, widgetTop = widget.Top, widgetOpacity = widget.Opacity, widgetTopmost = widget.Topmost,

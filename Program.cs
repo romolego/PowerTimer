@@ -10,8 +10,8 @@ using System.Windows;
 using System.Windows.Threading;
 [assembly: AssemblyTitle("Power Timer")]
 [assembly: AssemblyDescription("Таймер выключения и гибернации с виджетом и локальным API")]
-[assembly: AssemblyVersion("2.5.1.0")]
-[assembly: AssemblyFileVersion("2.5.1.0")]
+[assembly: AssemblyVersion("2.5.2.0")]
+[assembly: AssemblyFileVersion("2.5.2.0")]
 namespace PowerTimer {
  public static class Program {
   [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int processId);

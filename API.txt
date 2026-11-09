@@ -1,4 +1,4 @@
-POWER TIMER 2.5.1 — локальный HTTP API v1
+POWER TIMER 2.5.2 — локальный HTTP API v1
 
 CLI
 timerctl.exe status          — состояние и остаток.
@@ -68,7 +68,7 @@ widget без активного таймера открывает главно�
 отсутствие ответа само по себе не доказывает, что действие не применилось.
 
 Снимок состояния
-version: 1; appVersion: "2.5.1".
+version: 1; appVersion: "2.5.2".
 state: idle / running / paused / completed / error.
 remainingSeconds: остаток в секундах, округлённый вверх.
 remaining: HH:MM:SS; null без активного таймера. Часы могут иметь 3 цифры.

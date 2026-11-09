@@ -61,7 +61,26 @@
         </ComboBox>
        </Grid>
        <UniformGrid Columns="4" Rows="2" Margin="-3,0,-3,0">
-        <TextBox x:Name="Preset0" Style="{StaticResource PresetEditor}" BorderBrush="{DynamicResource AccentBrush}" FontWeight="SemiBold" ToolTip="Интервал по умолчанию" AutomationProperties.Name="Первый интервал по умолчанию в минутах"/>
+        <Border Margin="3" CornerRadius="8" Background="{DynamicResource DefaultPresetBg}">
+         <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBox x:Name="Preset0" Style="{StaticResource PresetEditor}" Margin="0" Padding="1,5" Background="Transparent" BorderBrush="Transparent" AutomationProperties.Name="Первый интервал по умолчанию в минутах"/>
+          <Button x:Name="DefaultPresetHelp" Grid.Column="1" Content="?" Width="20" Height="20" Margin="0,0,4,0" Padding="0" VerticalAlignment="Center"
+                  Foreground="{DynamicResource AccentBrush}" BorderBrush="{DynamicResource AccentBrush}" AutomationProperties.Name="Что означает первый интервал">
+           <Button.Template>
+            <ControlTemplate TargetType="Button">
+             <Border x:Name="HelpCircle" CornerRadius="10" BorderThickness="1" BorderBrush="{TemplateBinding BorderBrush}" Background="Transparent">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+             </Border>
+             <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="HelpCircle" Property="Background" Value="{DynamicResource SurfaceBg}"/></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="HelpCircle" Property="BorderThickness" Value="2"/></Trigger>
+             </ControlTemplate.Triggers>
+            </ControlTemplate>
+           </Button.Template>
+          </Button>
+         </Grid>
+        </Border>
         <TextBox x:Name="Preset1" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 2 в минутах"/>
         <TextBox x:Name="Preset2" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 3 в минутах"/>
         <TextBox x:Name="Preset3" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 4 в минутах"/>
@@ -70,6 +89,7 @@
         <TextBox x:Name="Preset6" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 7 в минутах"/>
         <TextBlock Text="Своё время" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
        </UniformGrid>
+       <TextBlock x:Name="DefaultPresetExplanation" Text="При запуске приложения автоматически выбирается первый интервал. Здесь можно изменить его длительность в минутах." Visibility="Collapsed" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
       </StackPanel>
      </Border>
      <Border Style="{StaticResource SettingsSection}">
@@ -87,7 +107,12 @@
       <StackPanel>
        <TextBlock Text="Виджет" Style="{StaticResource SectionHeading}"/>
        <CheckBox x:Name="WidgetTopmostCheck" Content="Поверх других окон"/>
-       <CheckBox x:Name="WidgetRememberPositionCheck" Content="Запоминать положение"/>
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <CheckBox x:Name="WidgetRememberPositionCheck" Content="Запоминать положение"/>
+        <Button x:Name="ResetWidgetPosition" Grid.Column="1" Content="Вернуть в угол" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="12" Padding="12,7"
+                ToolTip="После сохранения виджет вернётся в правый верхний угол экрана." AutomationProperties.Name="Вернуть виджет в правый верхний угол"/>
+       </Grid>
        <Grid Margin="0,10,0,12">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions>
         <TextBlock Text="Размер" VerticalAlignment="Center" FontSize="13"/>
@@ -101,7 +126,6 @@
         <Slider x:Name="WidgetOpacitySlider" Grid.Column="1" Minimum="60" Maximum="100" Value="100" TickFrequency="10" SmallChange="5" LargeChange="10" IsSnapToTickEnabled="False" VerticalAlignment="Center" AutomationProperties.Name="Непрозрачность виджета"/>
         <TextBlock x:Name="WidgetOpacityText" Grid.Column="2" Text="100%" Foreground="{DynamicResource MutedBrush}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right"/>
        </Grid>
-       <Button x:Name="ResetWidgetPosition" Content="Сбросить положение" HorizontalAlignment="Left" FontSize="12" Padding="12,7"/>
       </StackPanel>
      </Border>
     </StackPanel>
