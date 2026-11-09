@@ -2,13 +2,21 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Web.Script.Serialization;
 
 namespace PowerTimer {
     public sealed class Preferences {
+        const int CurrentSchemaVersion = 3;
+        const int InitialPresetMinutes = 120;
+        int legacyDefaultSeconds;
+
         public int schemaVersion { get; set; }
         public string theme { get; set; }
-        public int defaultSeconds { get; set; }
+        public string defaultAction { get; set; }
+        // Keep the old API field derived from the first preset. Its setter reads old files.
+        public int defaultSeconds {
+            get { return presetMinutes[0] * 60; }
+            set { legacyDefaultSeconds = value; }
+        }
         public int addSeconds { get; set; }
         public int[] presetMinutes { get; set; }
         public bool keepAwake { get; set; }
@@ -25,8 +33,8 @@ namespace PowerTimer {
         public double? widgetX { get; set; }
         public double? widgetY { get; set; }
         public Preferences() {
-            schemaVersion = 2; theme = "dark"; defaultSeconds = 7200; addSeconds = 600;
-            presetMinutes = new int[] { 10, 15, 30, 60, 120, 180, 240 };
+            theme = "dark"; defaultAction = TimerEngine.ShutdownAction; addSeconds = 600;
+            presetMinutes = new int[] { InitialPresetMinutes, 10, 15, 30, 60, 180, 240 };
             keepAwake = closeToTray = minimizeToTray = startInTray = notifyBeforeShutdown = true;
             widgetTopmost = rememberWidgetPosition = true; widgetSize = "small"; widgetOpacity = 100;
         }
@@ -34,15 +42,25 @@ namespace PowerTimer {
             var copy = (Preferences)MemberwiseClone(); copy.presetMinutes = (int[])presetMinutes.Clone(); return copy;
         }
         static bool ValidDuration(int n) { return n >= 60 && n <= TimerEngine.MaximumSeconds && n % 60 == 0; }
+        void PutPresetFirst(int minutes) {
+            int index = Array.IndexOf(presetMinutes, minutes);
+            if (index < 0) index = presetMinutes.Length - 1;
+            Array.Copy(presetMinutes, 0, presetMinutes, 1, index);
+            presetMinutes[0] = minutes;
+        }
         public void Normalize() {
-            schemaVersion = 2;
             if (theme != "dark" && theme != "light" && theme != "system") theme = "dark";
-            if (!ValidDuration(defaultSeconds)) defaultSeconds = 7200;
+            if (!TimerEngine.IsSupportedAction(defaultAction)) defaultAction = TimerEngine.ShutdownAction;
             if (!ValidDuration(addSeconds)) addSeconds = 600;
             if (presetMinutes != null && presetMinutes.Length == 8) presetMinutes = new List<int>(presetMinutes).GetRange(0, 7).ToArray();
             bool valid = presetMinutes != null && presetMinutes.Length == 7;
             if (valid) foreach (int value in presetMinutes) valid &= value >= 1 && value <= 10080;
             if (!valid) presetMinutes = new Preferences().presetMinutes;
+            if (schemaVersion < CurrentSchemaVersion) {
+                int minutes = ValidDuration(legacyDefaultSeconds) ? legacyDefaultSeconds / 60 : InitialPresetMinutes;
+                PutPresetFirst(minutes);
+            }
+            schemaVersion = CurrentSchemaVersion;
             if (widgetSize != "small" && widgetSize != "medium" && widgetSize != "large") widgetSize = "small";
             if (widgetOpacity < 60 || widgetOpacity > 100) widgetOpacity = 100;
             if (widgetX.HasValue && (Double.IsNaN(widgetX.Value) || Double.IsInfinity(widgetX.Value))) widgetX = null;
@@ -51,9 +69,9 @@ namespace PowerTimer {
         }
         public void Validate() {
             if (theme != "dark" && theme != "light" && theme != "system") throw new ArgumentException("Неизвестная тема.");
-            if (!ValidDuration(defaultSeconds)) throw new ArgumentException("Время по умолчанию: от 1 минуты до 7 суток.");
+            if (!TimerEngine.IsSupportedAction(defaultAction)) throw new ArgumentException("Выберите выключение или гибернацию.");
             if (!ValidDuration(addSeconds)) throw new ArgumentException("Шаг добавления: от 1 минуты до 7 суток.");
-            if (presetMinutes == null || presetMinutes.Length != 7) throw new ArgumentException("Нужно ровно 7 быстрых интервалов.");
+            if (presetMinutes == null || presetMinutes.Length != 7) throw new ArgumentException("Нужно ровно 7 интервалов.");
             foreach (int minutes in presetMinutes) if (minutes < 1 || minutes > 10080) throw new ArgumentException("Каждый интервал: от 1 до 10080 минут.");
             if (widgetSize != "small" && widgetSize != "medium" && widgetSize != "large") throw new ArgumentException("Неизвестный размер виджета.");
             if (widgetOpacity < 60 || widgetOpacity > 100) throw new ArgumentException("Прозрачность: от 60 до 100%.");
@@ -73,11 +91,17 @@ namespace PowerTimer {
         }
         public static Preferences Patch(Preferences current, Dictionary<string, object> data) {
             Preferences next = current.Clone();
+            int? requestedDefaultSeconds = null;
             foreach (var pair in data) {
                 string key = pair.Key; object value = pair.Value;
                 switch (key) {
                     case "theme": next.theme = Text(value, key); break;
-                    case "defaultSeconds": next.defaultSeconds = Integer(value, key); break;
+                    case "defaultAction": next.defaultAction = Text(value, key); break;
+                    case "defaultSeconds":
+                        int seconds = Integer(value, key);
+                        if (!ValidDuration(seconds)) throw new ArgumentException("Интервал по умолчанию должен быть от 1 минуты до 7 суток.");
+                        requestedDefaultSeconds = seconds;
+                        break;
                     case "addSeconds": next.addSeconds = Integer(value, key); break;
                     case "presetMinutes":
                         if (value is string || !(value is IEnumerable)) throw new ArgumentException("presetMinutes: ожидается массив из 7 чисел.");
@@ -96,7 +120,9 @@ namespace PowerTimer {
                     default: throw new ArgumentException("Неизвестный параметр: " + key);
                 }
             }
-            next.Validate(); return next;
+            next.Validate();
+            if (requestedDefaultSeconds.HasValue) next.PutPresetFirst(requestedDefaultSeconds.Value / 60);
+            return next;
         }
     }
 }

@@ -31,6 +31,7 @@ namespace PowerTimer {
   readonly ComboBox actionPicker;
   Window settings, custom;
   int selectedSeconds, selectedIndex;
+  string selectedPowerAction;
   readonly Forms.NotifyIcon tray;
   readonly Forms.ToolStripMenuItem trayPause, trayCancel, trayPresets;
   readonly System.Drawing.Icon trayIcon;
@@ -44,6 +45,7 @@ namespace PowerTimer {
   public TimerApplication(Application app, string folder, bool test) {
    this.app = app; this.folder = folder; this.test = test;
    prefs = Store.Read<Preferences>(Path.Combine(folder, "settings.json")) ?? new Preferences(); prefs.Normalize();
+   selectedPowerAction = prefs.defaultAction;
    if (!test) prefs.startWithWindows = GetAutostart();
    clock = new SystemClock(); engine = new TimerEngine(clock, ExecutePowerAction);
    engine.Restore(Store.Read<TimerRecord>(Path.Combine(folder, "timer.json")));
@@ -106,10 +108,15 @@ namespace PowerTimer {
    Click(main, "WidgetButton", ShowWidget); Click(main, "SettingsButton", OpenSettings);
    Click(main, "HideButton", delegate { if (prefs.minimizeToTray) HideAll(); else main.WindowState = WindowState.Minimized; });
    Click(main, "CloseButton", CloseRequested);
-   actionPicker.SelectionChanged += delegate { if (!engine.Active) Update(); };
-   Click(main, "StartButton", delegate { StartTimer(selectedSeconds, SelectedPowerAction); });
+   actionPicker.SelectionChanged += delegate {
+    string action = SelectedTag(actionPicker);
+    if (engine.Active || action == null || action == selectedPowerAction) return;
+    selectedPowerAction = action;
+    Update();
+   };
+   Click(main, "StartButton", delegate { StartTimer(selectedSeconds, CurrentPowerAction); });
    Click(main, "PauseButton", TogglePause); Click(main, "CancelButton", engine.Cancel);
-   Click(widget, "WidgetPause", delegate { if (engine.Active) TogglePause(); else StartTimer(selectedSeconds, SelectedPowerAction); });
+   Click(widget, "WidgetPause", delegate { if (engine.Active) TogglePause(); else StartTimer(selectedSeconds, CurrentPowerAction); });
    Click(widget, "WidgetExpandButton", delegate { SetWidgetExpanded(!widgetExpanded); });
    Click(widget, "WidgetCancel", engine.Cancel); Click(widget, "WidgetOpenMain", ShowMain); Click(widget, "WidgetHide", HideAll);
    widget.SizeChanged += delegate { if (initialized && widget.IsVisible) ClampWidget(); };
@@ -142,7 +149,7 @@ namespace PowerTimer {
     var b = new Button { Name = "PresetButton" + i, Content = ShortDuration(seconds), Margin = new Thickness(3), Tag = seconds };
     int index = i; AutomationProperties.SetName(b, "Выбрать " + ShortDuration(seconds)); b.Click += delegate { Try(delegate { selectedSeconds = seconds; selectedIndex = index; RefreshSelection(); }); };
     main.RegisterName(b.Name, b); panel.Children.Add(b);
-    trayPresets.DropDownItems.Add(ShortDuration(seconds), null, delegate { OnUi(delegate { Try(delegate { StartTimer(seconds, SelectedPowerAction); }); }); });
+    trayPresets.DropDownItems.Add(ShortDuration(seconds), null, delegate { OnUi(delegate { Try(delegate { StartTimer(seconds, CurrentPowerAction); }); }); });
    }
    var own = new Button { Name = "PresetButton7", Content = "Своё время", Margin = new Thickness(3) };
    own.Click += delegate { Try(OpenCustom); }; main.RegisterName(own.Name, own); panel.Children.Add(own);
@@ -165,7 +172,7 @@ namespace PowerTimer {
    }
   }
   void ApplyPreferences(bool resetInputs) {
-   if (resetInputs) selectedSeconds = prefs.defaultSeconds;
+   if (resetInputs) selectedSeconds = prefs.presetMinutes[0] * 60;
    selectedIndex = selectedSeconds % 60 == 0 ? Array.IndexOf(prefs.presetMinutes, selectedSeconds / 60) : -1; if (selectedIndex < 0) selectedIndex = 7;
    BuildPresets(); RefreshSelection(); ApplyTheme(prefs.theme); widget.Topmost = prefs.widgetTopmost; widget.Opacity = prefs.widgetOpacity / 100.0;
    double scale = prefs.widgetSize == "medium" ? 1.2 : prefs.widgetSize == "large" ? 1.4 : 1;
@@ -183,7 +190,7 @@ namespace PowerTimer {
    Store.Write(Path.Combine(folder, "api.json"), new { version = 1, baseUrl = "http://127.0.0.1:" + api.Port + "/", token = token, pid = Process.GetCurrentProcess().Id, testMode = test, executable = Assembly.GetExecutingAssembly().Location });
    initialized = true; Persist(true); UpdateSleep(); Update(); ScheduleTick();
    if (hidden || (startup && prefs.startInTray)) HideAll(); else if (compact || prefs.widgetMode) ShowWidget(); else ShowMain();
-   Log(test ? "Started TEST 2.4.0 (no power actions)" : "Started 2.4.0");
+   Log(test ? "Started TEST 2.5.0 (no power actions)" : "Started 2.5.0");
   }
   void OnUi(Action action) {
    if (!exiting && !exitPending && !app.Dispatcher.HasShutdownStarted)
@@ -191,7 +198,7 @@ namespace PowerTimer {
   }
   void Try(Action action) { if (exiting || exitPending) return; try { uiNotice = null; action(); Update(); ScheduleTick(); } catch (Exception ex) { ShowError(ex.Message); } }
   public void ShowError(string text) { uiNotice = text; noticeUntil = clock.Elapsed + 12; lastRenderKey = null; Update(); ScheduleTick(); if (!main.IsVisible && !Visible(settings)) ShowMain(); }
-  string SelectedPowerAction { get { return (string)actionPicker.SelectedValue ?? TimerEngine.ShutdownAction; } }
+  string CurrentPowerAction { get { return engine.Active ? engine.ScheduledAction : selectedPowerAction; } }
   void EnsureActionAvailable(string action) {
    if (action == TimerEngine.HibernateAction && !test && !IsPwrHibernateAllowed())
     throw new InvalidOperationException("Гибернация недоступна в текущих настройках Windows.");
@@ -236,13 +243,11 @@ namespace PowerTimer {
    if (main == null || widget == null) return;
    string state = engine.State;
    bool active = engine.Active;
-   string action = active ? engine.ScheduledAction : SelectedPowerAction;
+   string action = CurrentPowerAction;
    string key = state + ":" + Math.Ceiling(engine.Remaining).ToString(CultureInfo.InvariantCulture) + ":" + uiNotice + ":" + effectiveTheme + ":" + action;
    if (key == lastRenderKey) return; lastRenderKey = key;
-   if (active) {
-    actionPicker.IsDropDownOpen = false;
-    actionPicker.SelectedValue = action;
-   }
+   if (active) actionPicker.IsDropDownOpen = false;
+   if (SelectedTag(actionPicker) != action) actionPicker.SelectedValue = action;
    actionPicker.IsEnabled = !active;
    bool hibernate = action == TimerEngine.HibernateAction;
    main.Title = (hibernate ? "Таймер гибернации" : "Таймер выключения") + (test ? " [ТЕСТ]" : "");
@@ -364,9 +369,9 @@ namespace PowerTimer {
   }
   object Snapshot() {
    Size size = WidgetSize();
-   return new { version = 1, appVersion = "2.4.0", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
+   return new { version = 1, appVersion = "2.5.0", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
     deadlineUtc = engine.Deadline.HasValue ? engine.Deadline.Value.ToString("o") : null, deadlineLocal = engine.Deadline.HasValue ? engine.Deadline.Value.ToLocalTime().ToString("o") : null,
-    totalSeconds = engine.Total, action = engine.State == "idle" ? SelectedPowerAction : engine.ScheduledAction, testMode = test, ui = main.IsVisible ? "show" : widget.IsVisible ? "widget" : "tray", settingsOpen = Visible(settings), customOpen = Visible(custom), selectedSeconds = selectedSeconds, selectedIndex = selectedIndex,
+    totalSeconds = engine.Total, action = engine.State == "idle" ? selectedPowerAction : engine.ScheduledAction, testMode = test, ui = main.IsVisible ? "show" : widget.IsVisible ? "widget" : "tray", settingsOpen = Visible(settings), customOpen = Visible(custom), selectedSeconds = selectedSeconds, selectedIndex = selectedIndex,
     widgetExpanded = widgetExpanded, widgetWidth = size.Width, widgetHeight = size.Height, widgetLeft = widget.Left, widgetTop = widget.Top, widgetOpacity = widget.Opacity, widgetTopmost = widget.Topmost,
     effectiveTheme = effectiveTheme, keepAwake = prefs.keepAwake, sleepPreventionActive = sleepHeld, message = engine.Message };
   }

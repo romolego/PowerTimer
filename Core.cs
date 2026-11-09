@@ -47,10 +47,13 @@ namespace PowerTimer {
             if (Double.IsNaN(seconds) || Double.IsInfinity(seconds) || seconds < 1 || seconds > MaximumSeconds)
                 throw new ArgumentException("Укажите время от 1 секунды до 7 суток.");
         }
+        public static bool IsSupportedAction(string action) {
+            return action == ShutdownAction || action == HibernateAction;
+        }
         void Notify() { if (Changed != null) Changed(); }
         public void Start(double seconds, string action = ShutdownAction) {
             Validate(seconds);
-            if (action != ShutdownAction && action != HibernateAction)
+            if (!IsSupportedAction(action))
                 throw new ArgumentException("Неизвестное действие таймера.");
             generation++; total = seconds; frozen = 0; due = clock.Elapsed + seconds;
             ScheduledAction = action;

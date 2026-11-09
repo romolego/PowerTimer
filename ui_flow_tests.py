@@ -7,7 +7,7 @@ def main():
     assert not idle['TimerCard']['visible'] and idle['StartButton']['visible']
     assert not idle['ActiveActions']['visible'] and not idle['WidgetButton']['visible']
     selected = click('main', 'PresetButton3')
-    assert selected['state'] == 'idle' and selected['selectedSeconds'] == 3600
+    assert selected['state'] == 'idle' and selected['selectedSeconds'] == call('v1/settings')['settings']['presetMinutes'][3] * 60
     click('main', 'StartButton')
     running = ui()
     assert running['TimerCard']['visible'] and running['ActiveActions']['visible']

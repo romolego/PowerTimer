@@ -1,7 +1,7 @@
 from test_support import call, click, change, ui, reset
 from urllib.error import HTTPError
 
-EDITABLE = ('theme', 'defaultSeconds', 'addSeconds', 'presetMinutes', 'keepAwake',
+EDITABLE = ('theme', 'defaultAction', 'addSeconds', 'presetMinutes', 'keepAwake',
             'closeToTray', 'minimizeToTray', 'startWithWindows', 'startInTray',
             'notifyBeforeShutdown', 'widgetTopmost', 'widgetSize', 'widgetOpacity', 'rememberWidgetPosition')
 
@@ -9,6 +9,7 @@ EDITABLE = ('theme', 'defaultSeconds', 'addSeconds', 'presetMinutes', 'keepAwake
 def main():
     reset()
     before = call('v1/settings')['settings']
+    target_action = 'hibernate' if before['defaultAction'] == 'shutdown' else 'shutdown'
     try:
         assert len(before['presetMinutes']) == 7
         click('main', 'PresetButton7')
@@ -31,6 +32,7 @@ def main():
         original_theme = call('v1/status')['effectiveTheme']
         preview = 'dark' if original_theme == 'light' else 'light'
         change('settings', 'ThemeSelect', 'select', preview)
+        change('settings', 'DefaultActionSelect', 'select', target_action)
         assert call('v1/status')['effectiveTheme'] == preview
         try:
             call('v1/settings', {'theme': preview})
@@ -39,17 +41,25 @@ def main():
             assert error.code == 409
         click('settings', 'CancelSettingsButton')
         assert call('v1/status')['effectiveTheme'] == original_theme
+        assert call('v1/settings')['settings']['defaultAction'] == before['defaultAction']
         call('v1/ui', {'mode': 'settings'})
-        change('settings', 'Preset0', 'text', '17')
-        change('settings', 'DefaultHours', 'text', '3')
+        new_minutes = 17 if before['presetMinutes'][0] != 17 else 19
+        change('settings', 'Preset0', 'text', str(new_minutes))
+        change('settings', 'DefaultActionSelect', 'select', target_action)
+        call('v1/test/render', {'suffix': 'defaults'})
         click('settings', 'SaveSettingsButton')
         assert not call('v1/status')['settingsOpen']
-        assert call('v1/settings')['settings']['presetMinutes'][0] == 17
-        selected = click('main', 'PresetButton0')
-        assert selected['state'] == 'idle' and selected['selectedSeconds'] == 1020
-        click('main', 'StartButton')
-        call('v1/settings', {'defaultSeconds': 14400})
-        assert 1015 <= call('v1/status')['remainingSeconds'] <= 1020
+        saved = call('v1/settings')['settings']
+        assert saved['presetMinutes'] == [new_minutes] + before['presetMinutes'][1:]
+        assert saved['defaultSeconds'] == new_minutes * 60 and saved['defaultAction'] == target_action
+        selected = call('v1/status')
+        assert selected['state'] == 'idle' and selected['selectedIndex'] == 0
+        assert selected['selectedSeconds'] == new_minutes * 60 and selected['action'] == target_action, selected
+        assert click('main', 'StartButton')['action'] == target_action
+        call('v1/settings', {'defaultSeconds': 14400, 'defaultAction': before['defaultAction']})
+        running = call('v1/status')
+        assert new_minutes * 60 - 5 <= running['remainingSeconds'] <= new_minutes * 60
+        assert running['action'] == target_action
         click('main', 'WidgetButton')
         for size, expected in [('small', 174), ('medium', 209), ('large', 244)]:
             call('v1/settings', {'widgetSize': size})
@@ -58,9 +68,11 @@ def main():
         assert call('v1/status')['widgetOpacity'] == .75 and not call('v1/status')['widgetTopmost']
         click('widget', 'WidgetExpandButton')
         click('widget', 'WidgetCancel')
-        assert call('v1/status')['ui'] == 'show' and call('v1/status')['state'] == 'idle'
+        selected = call('v1/status')
+        assert selected['ui'] == 'show' and selected['state'] == 'idle'
+        assert selected['action'] == before['defaultAction'] and selected['selectedSeconds'] == 14400 and selected['selectedIndex'] == 0
         assert not ui()['TimerCard']['visible']
-        print('PASS: decimal durations, validation, theme preview/cancel, saved presets, active timer preservation, widget settings.')
+        print('PASS: decimal durations, validation, theme preview/cancel, first preset and default action, active timer preservation, widget settings.')
     finally:
         call('v1/ui', {'mode': 'tray'})
         call('v1/timer', method='DELETE')

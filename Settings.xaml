@@ -2,6 +2,31 @@
  Title="Power Timer — настройки" Width="510" Height="720" WindowStartupLocation="CenterOwner"
  WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True" Background="Transparent"
  FontFamily="Segoe UI" Foreground="{DynamicResource TextBrush}" ShowInTaskbar="False">
+ <Window.Resources>
+  <Style x:Key="PresetEditor" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+   <Setter Property="Margin" Value="3"/>
+   <Setter Property="MaxLength" Value="5"/>
+   <Setter Property="Padding" Value="5,5"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="TextBox">
+      <Border x:Name="PresetFrame" CornerRadius="8" SnapsToDevicePixels="True" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
+        <TextBlock Grid.Column="1" Text="мин" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+       </Grid>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsKeyboardFocusWithin" Value="True">
+        <Setter TargetName="PresetFrame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+       </Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+ </Window.Resources>
  <Border CornerRadius="18" Background="{DynamicResource WindowBg}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
   <Grid Margin="22,18,22,18">
    <Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -28,22 +53,21 @@
       <StackPanel>
        <TextBlock Text="Таймер" Style="{StaticResource SectionHeading}"/>
        <Grid Margin="0,0,0,12">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="58"/><ColumnDefinition Width="24"/><ColumnDefinition Width="58"/><ColumnDefinition Width="32"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Время по умолчанию" VerticalAlignment="Center" FontSize="13"/>
-        <TextBox x:Name="DefaultHours" Grid.Column="1" Text="2" MaxLength="3" AutomationProperties.Name="Часы по умолчанию"/>
-        <TextBlock Text="ч" Grid.Column="2" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-        <TextBox x:Name="DefaultMinutes" Grid.Column="3" Text="0" MaxLength="2" AutomationProperties.Name="Минуты по умолчанию"/>
-        <TextBlock Text="мин" Grid.Column="4" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions>
+        <TextBlock Text="Действие по умолчанию" VerticalAlignment="Center" FontSize="13"/>
+        <ComboBox x:Name="DefaultActionSelect" Grid.Column="1" SelectedIndex="0" AutomationProperties.Name="Действие по умолчанию">
+         <ComboBoxItem Content="Выключение" Tag="shutdown"/>
+         <ComboBoxItem Content="Гибернация" Tag="hibernate"/>
+        </ComboBox>
        </Grid>
-       <TextBlock Text="Быстрые интервалы, мин" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6"/>
        <UniformGrid Columns="4" Rows="2" Margin="-3,0,-3,0">
-        <TextBox x:Name="Preset0" Text="10" MaxLength="5" Margin="3" AutomationProperties.Name="Интервал 1 в минутах"/>
-        <TextBox x:Name="Preset1" Text="15" MaxLength="5" Margin="3" AutomationProperties.Name="Интервал 2 в минутах"/>
-        <TextBox x:Name="Preset2" Text="30" MaxLength="5" Margin="3" AutomationProperties.Name="Интервал 3 в минутах"/>
-        <TextBox x:Name="Preset3" Text="60" MaxLength="5" Margin="3" AutomationProperties.Name="Интервал 4 в минутах"/>
-        <TextBox x:Name="Preset4" Text="120" MaxLength="5" Margin="3" AutomationProperties.Name="Интервал 5 в минутах"/>
-        <TextBox x:Name="Preset5" Text="180" MaxLength="5" Margin="3" AutomationProperties.Name="Интервал 6 в минутах"/>
-        <TextBox x:Name="Preset6" Text="240" MaxLength="5" Margin="3" AutomationProperties.Name="Интервал 7 в минутах"/>
+        <TextBox x:Name="Preset0" Style="{StaticResource PresetEditor}" BorderBrush="{DynamicResource AccentBrush}" FontWeight="SemiBold" ToolTip="Интервал по умолчанию" AutomationProperties.Name="Первый интервал по умолчанию в минутах"/>
+        <TextBox x:Name="Preset1" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 2 в минутах"/>
+        <TextBox x:Name="Preset2" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 3 в минутах"/>
+        <TextBox x:Name="Preset3" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 4 в минутах"/>
+        <TextBox x:Name="Preset4" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 5 в минутах"/>
+        <TextBox x:Name="Preset5" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 6 в минутах"/>
+        <TextBox x:Name="Preset6" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 7 в минутах"/>
         <TextBlock Text="Своё время" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
        </UniformGrid>
       </StackPanel>

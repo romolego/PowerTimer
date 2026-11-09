@@ -93,12 +93,20 @@ def main():
     call('v1/test/interaction', {'window': 'main', 'action': 'stall', 'value': 16000}, timeout=25)
     wait_for(lambda: call('v1/status')['state'] == 'idle')
     assert firings() == baseline
+    settings = call('v1/settings')['settings']
+    presets = [37] + settings['presetMinutes'][1:]
+    call('v1/settings', {'defaultAction': 'hibernate', 'presetMinutes': presets})
     call('v1/test/interaction', {'window': 'main', 'action': 'exitRace'})
     wait_for(lambda: not (FOLDER / 'api.json').exists())
     assert json.loads((FOLDER / 'timer.json').read_text(encoding='utf-8-sig'))['state'] == 'idle'
     start()
-    assert call('v1/status')['state'] == 'idle'
-    print('PASS: hibernation crash recovery, expired timer discard, corrupt storage, token rotation, stale requests, stalled deadline, exit race.')
+    selected = call('v1/status')
+    assert selected['state'] == 'idle' and selected['action'] == 'hibernate'
+    assert selected['selectedIndex'] == 0 and selected['selectedSeconds'] == 37 * 60
+    assert call('v1/timer', {'seconds': 600})['action'] == 'shutdown'
+    assert call('v1/timer', method='DELETE')['action'] == 'hibernate'
+    call('v1/settings', {'defaultAction': settings['defaultAction'], 'presetMinutes': settings['presetMinutes']})
+    print('PASS: hibernation crash recovery, expired timer discard, corrupt storage, token rotation, stale requests, stalled deadline, exit race and saved defaults.')
 
 
 if __name__ == '__main__':

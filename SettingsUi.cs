@@ -35,7 +35,8 @@ namespace PowerTimer {
     throw;
    }
    prefs = next; previewTheme = null;
-   ApplyPreferences(before.defaultSeconds != next.defaultSeconds);
+   if (before.defaultAction != next.defaultAction) selectedPowerAction = next.defaultAction;
+   ApplyPreferences(before.presetMinutes[0] != next.presetMinutes[0]);
    if (resetPosition || (before.rememberWidgetPosition && !next.rememberWidgetPosition)) PlaceWidget(false);
    SaveWidgetPosition(); Persist();
   }
@@ -49,7 +50,11 @@ namespace PowerTimer {
   void WireSettings() {
    DragOn(Find<Grid>(settings, "SettingsDrag"), settings);
    settings.Closing += delegate(object s, System.ComponentModel.CancelEventArgs e) { if (exiting) return; e.Cancel = true; CancelSettings(); };
-   settings.PreviewKeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Escape) { CancelSettings(); e.Handled = true; } };
+   var defaultActionPicker = Find<ComboBox>(settings, "DefaultActionSelect");
+   settings.PreviewKeyDown += delegate(object s, KeyEventArgs e) {
+    if (e.Key != Key.Escape || defaultActionPicker.IsDropDownOpen) return;
+    CancelSettings(); e.Handled = true;
+   };
    Find<Button>(settings, "SettingsClose").Click += delegate { CancelSettings(); };
    Find<Button>(settings, "CancelSettingsButton").Click += delegate { CancelSettings(); };
    Find<Button>(settings, "SaveSettingsButton").Click += delegate {
@@ -78,8 +83,7 @@ namespace PowerTimer {
    loadingSettings = true;
    try {
     SelectTag("ThemeSelect", prefs.theme);
-    Find<TextBox>(settings, "DefaultHours").Text = (prefs.defaultSeconds / 3600).ToString();
-    Find<TextBox>(settings, "DefaultMinutes").Text = (prefs.defaultSeconds % 3600 / 60).ToString();
+    SelectTag("DefaultActionSelect", prefs.defaultAction);
     for (int i = 0; i < 7; i++) Find<TextBox>(settings, "Preset" + i).Text = prefs.presetMinutes[i].ToString();
     SetCheck("KeepAwakeCheck", prefs.keepAwake); SetCheck("AutostartCheck", GetAutostart());
     SetCheck("StartupTrayCheck", prefs.startInTray); SetCheck("CloseToTrayCheck", prefs.closeToTray);
@@ -95,9 +99,7 @@ namespace PowerTimer {
   }
   Preferences ReadSettingsDraft() {
    Preferences next = prefs.Clone();
-   int hours = InputInt(settings, "DefaultHours"), minutes = InputInt(settings, "DefaultMinutes");
-   if (hours < 0 || hours > 168 || minutes < 0 || minutes > 59) throw new ArgumentException("Время по умолчанию: часы 0–168, минуты 0–59.");
-   next.defaultSeconds = hours * 3600 + minutes * 60;
+   next.defaultAction = SelectedTag(Find<ComboBox>(settings, "DefaultActionSelect"));
    next.theme = SelectedTag(Find<ComboBox>(settings, "ThemeSelect"));
    for (int i = 0; i < 7; i++) next.presetMinutes[i] = InputInt(settings, "Preset" + i);
    next.keepAwake = Check("KeepAwakeCheck"); next.startWithWindows = Check("AutostartCheck"); next.startInTray = Check("StartupTrayCheck");
