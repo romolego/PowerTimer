@@ -54,7 +54,7 @@ expect(request('POST', 'v1/timer', raw=b'[]')[0] == 400, 'JSON array rejected')
 expect(request('POST', 'v1/timer', {'seconds': 60}, extra={'Content-Type': 'text/plain'})[0] == 415, 'JSON content type required')
 for seconds in (600, 900, 1800, 3600, 7200, 10800, 14400, 18000):
     code, result = request('POST', 'v1/timer', {'seconds': seconds})
-    expect(code == 200 and result['state'] == 'running' and result['remainingSeconds'] == seconds, 'preset ' + str(seconds))
+    expect(code == 200 and result['state'] == 'running' and result['remainingSeconds'] == seconds and result['action'] == 'shutdown', 'shutdown preset ' + str(seconds))
 time.sleep(1.1)
 expect(request('GET', 'v1/status')[1]['remainingSeconds'] < 18000, 'countdown advances')
 paused = request('POST', 'v1/pause', {})[1]
@@ -82,9 +82,9 @@ with socket.create_connection(('127.0.0.1', port), timeout=5) as connection:
     expect(b'413 Payload Too Large' in connection.recv(4096), 'oversized body rejected')
 
 
-def firings():
+def firings(command='TEST: would request shutdown'):
     log = folder / 'activity.log'
-    return log.read_text(encoding='utf-8-sig').count('TEST: would request shutdown') if log.exists() else 0
+    return log.read_text(encoding='utf-8-sig').count(command) if log.exists() else 0
 
 
 baseline = firings()
@@ -98,4 +98,17 @@ request('POST', 'v1/timer', {'seconds': 1})
 request('DELETE', 'v1/timer')
 time.sleep(1.4)
 expect(firings() == baseline + 1, 'cancellation suppresses action')
+expect(request('POST', 'v1/timer', {'seconds': 1, 'action': 'hibernate'})[0] == 400, 'hibernation must use the explicit endpoint')
+expect(request('GET', 'v1/status')[1]['state'] == 'idle', 'mismatched action did not start a timer')
+hibernate_baseline = firings('TEST: would request shutdown /h')
+code, result = request('POST', 'v1/timer/hibernate', {'seconds': 1})
+expect(code == 200 and result['action'] == 'hibernate', 'hibernation scheduled')
+time.sleep(1.6)
+completed = request('GET', 'v1/status')[1]
+expect(completed['state'] == 'completed' and completed['action'] == 'hibernate', 'hibernation reached deadline')
+expect(firings('TEST: would request shutdown /h') == hibernate_baseline + 1 and firings() == baseline + 2,
+       'hibernation invokes /h exactly once')
+code, result = request('POST', 'v1/timer', {'seconds': 600})
+expect(code == 200 and result['action'] == 'shutdown', 'legacy API still schedules shutdown after hibernation')
+request('DELETE', 'v1/timer')
 print(f'PASS: {checks} API integration checks. Only the harmless test instance was used.')

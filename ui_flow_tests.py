@@ -37,8 +37,19 @@ def main():
     click('main', 'PresetButton7')
     click('custom', 'CustomCancel')
     assert call('v1/status')['selectedSeconds'] == 5700
+    change('main', 'PowerActionSelect', 'select', 'hibernate')
+    assert click('main', 'StartButton')['action'] == 'hibernate'
+    hibernating = ui()
+    assert hibernating['StateText']['value'] == 'ДО ГИБЕРНАЦИИ'
+    assert hibernating['PowerActionSelect']['value'] == 'hibernate' and not hibernating['PowerActionSelect']['enabled']
+    call('v1/test/render', {'suffix': 'hibernate'})
+    assert click('main', 'PauseButton')['action'] == 'hibernate'
+    assert click('main', 'PauseButton')['state'] == 'running'
+    click('main', 'CancelButton')
+    assert ui()['PowerActionSelect']['enabled']
+    change('main', 'PowerActionSelect', 'select', 'shutdown')
     call('v1/test/render', {'suffix': 'idle'})
-    print('PASS: selection, start, pause, resume, cancel, custom dialog, widget, rendered windows.')
+    print('PASS: shutdown/hibernation selector, start, pause, resume, cancel, custom dialog, widget, rendered windows.')
 
 
 if __name__ == '__main__':

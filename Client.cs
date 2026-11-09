@@ -50,15 +50,17 @@ namespace PowerTimer {
                 bool test = Array.IndexOf(args, "--test") >= 0;
                 var list = new List<string>(args); list.Remove("--test"); args = list.ToArray();
                 if (args.Length == 0 || args[0] == "help" || args[0] == "--help") {
-                    Console.WriteLine("timerctl status | after 30m | after 2h | after 90s | cancel | pause | resume | add 10m | show | widget | tray | settings | config | exit\nDuration: number + s/m/h (or seconds). --test connects only to the harmless test instance.\nCommands return JSON; exit code 0 = success, 1 = error. 'exit' cancels the timer and closes the app."); return 0;
+                    Console.WriteLine("timerctl status | after 30m | hibernate 30m | cancel | pause | resume | add 10m | show | widget | tray | settings | config | exit\nDuration: number + s/m/h (or seconds). --test connects only to the harmless test instance.\nCommands return JSON; exit code 0 = success, 1 = error. 'exit' cancels the timer and closes the app."); return 0;
                 }
                 string method = "POST", route; object body = new { };
                 switch (args[0]) {
                     case "status": method = "GET"; route = "v1/status"; body = null; break;
-                    case "after": case "add":
-                        if (args.Length != 2) throw new ArgumentException("Укажите длительность, например after 30m или after 2h.");
+                    case "after": case "hibernate": case "add":
+                        if (args.Length != 2) throw new ArgumentException("Укажите длительность, например " + args[0] + " 30m.");
                         double seconds = ParseDuration(args[1]);
-                        route = args[0] == "after" ? "v1/timer" : "v1/extend"; body = new { seconds = seconds }; break;
+                        if (args[0] == "add") route = "v1/extend";
+                        else route = args[0] == "hibernate" ? "v1/timer/hibernate" : "v1/timer";
+                        body = new { seconds = seconds }; break;
                     case "cancel": method = "DELETE"; route = "v1/timer"; body = null; break;
                     case "pause": case "resume": route = "v1/" + args[0]; break;
                     case "show": case "widget": case "tray": case "settings": route = "v1/ui"; body = new { mode = args[0] }; break;

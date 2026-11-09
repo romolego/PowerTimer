@@ -118,13 +118,15 @@ namespace PowerTimer {
                 timer.Start(1); timer.Cancel(); clock.Advance(2); timer.Tick(); Check(powered == 1, "cancel suppresses power action");
                 timer.Start(60); timer.Start(120); clock.Advance(61); timer.Tick(); Check(powered == 1 && timer.Active, "replacement timer supersedes old deadline");
                 var record = timer.Export(); var restored = new TimerEngine(clock, delegate { powered++; }); restored.Restore(record);
-                Check(restored.State == "paused" && restored.Remaining > 58, "restore on pause");
+                Check(restored.State == "paused" && restored.Remaining > 58 && restored.ScheduledAction == TimerEngine.ShutdownAction, "restore existing shutdown record on pause");
                 record.deadlineUtc = clock.UtcNow.AddSeconds(-1).ToString("o"); restored = new TimerEngine(clock, delegate { powered++; }); restored.Restore(record);
                 Check(!restored.Active && powered == 1, "expired timer discarded");
                 timer.Start(604800); Reject(delegate { timer.Extend(1); }, "extend max bound");
                 timer.Cancel(); Reject(timer.Pause, "pause idle rejected"); Reject(timer.Resume, "resume idle rejected"); Reject(delegate { timer.Extend(10); }, "extend idle rejected");
                 var failing = new TimerEngine(clock, delegate { throw new Exception("test error"); }); failing.Start(1); clock.Advance(2); failing.Tick();
                 Check(failing.State == "error" && !failing.Active, "power failure captured");
+                failing.Start(1, TimerEngine.HibernateAction); clock.Advance(2); failing.Tick();
+                Check(failing.State == "error" && failing.ScheduledAction == TimerEngine.HibernateAction && failing.Message.Contains("гибернации"), "hibernation failure is reported as hibernation");
                 Check(TimerEngine.Format(360000) == "100:00:00", "100 hour formatting");
                 Check(ControlCli.ParseDuration("2h") == 7200 && ControlCli.ParseDuration("1.5m") == 90, "CLI units");
                 Reject(delegate { ControlCli.ParseDuration("NaN"); }, "CLI NaN");

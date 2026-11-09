@@ -50,16 +50,16 @@ def main():
     reset()
     baseline = firings()
     old_token = connection()['token']
-    call('v1/timer', {'seconds': 600})
+    call('v1/timer/hibernate', {'seconds': 600})
     stop(force=True)
     start()
     state = call('v1/status')
-    assert state['state'] == 'paused' and 580 <= state['remainingSeconds'] <= 600
+    assert state['state'] == 'paused' and state['action'] == 'hibernate' and 580 <= state['remainingSeconds'] <= 600
     assert connection()['token'] != old_token
     remaining = state['remainingSeconds']
     time.sleep(1.1)
     assert call('v1/status')['remainingSeconds'] == remaining
-    call('v1/resume', {})
+    assert call('v1/resume', {})['action'] == 'hibernate'
     time.sleep(1.1)
     assert call('v1/status')['remainingSeconds'] < remaining
     call('v1/timer', {'seconds': 1})
@@ -98,7 +98,7 @@ def main():
     assert json.loads((FOLDER / 'timer.json').read_text(encoding='utf-8-sig'))['state'] == 'idle'
     start()
     assert call('v1/status')['state'] == 'idle'
-    print('PASS: crash recovery, expired timer discard, corrupt storage, token rotation, stale requests, stalled deadline, exit race.')
+    print('PASS: hibernation crash recovery, expired timer discard, corrupt storage, token rotation, stale requests, stalled deadline, exit race.')
 
 
 if __name__ == '__main__':

@@ -21,10 +21,14 @@ using Forms = System.Windows.Forms;
 namespace PowerTimer {
  public sealed partial class TimerApplication : IDisposable {
   [DllImport("kernel32.dll", SetLastError = true)] static extern uint SetThreadExecutionState(uint flags);
+  [DllImport("powrprof.dll")]
+  [return: MarshalAs(UnmanagedType.U1)]
+  static extern bool IsPwrHibernateAllowed();
   const uint Continuous = 0x80000000, SystemRequired = 1;
   readonly Application app; readonly string folder; readonly bool test;
   Preferences prefs; readonly TimerEngine engine; readonly SystemClock clock;
   readonly Window main, widget;
+  readonly ComboBox actionPicker;
   Window settings, custom;
   int selectedSeconds, selectedIndex;
   readonly Forms.NotifyIcon tray;
@@ -41,11 +45,12 @@ namespace PowerTimer {
    this.app = app; this.folder = folder; this.test = test;
    prefs = Store.Read<Preferences>(Path.Combine(folder, "settings.json")) ?? new Preferences(); prefs.Normalize();
    if (!test) prefs.startWithWindows = GetAutostart();
-   clock = new SystemClock(); engine = new TimerEngine(clock, ExecutePowerOff);
+   clock = new SystemClock(); engine = new TimerEngine(clock, ExecutePowerAction);
    engine.Restore(Store.Read<TimerRecord>(Path.Combine(folder, "timer.json")));
    effectiveTheme = Theme.Apply(app, prefs.theme);
    using (Stream r = Resource("Styles.xaml")) app.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Load(r));
    main = LoadWindow("Main.xaml"); widget = LoadWindow("Widget.xaml");
+   actionPicker = Find<ComboBox>(main, "PowerActionSelect");
    main.MaxHeight = Math.Max(320, SystemParameters.WorkArea.Height - 24);
    using (Stream r = Resource("icon.ico")) {
     trayIcon = new System.Drawing.Icon(r);
@@ -86,21 +91,25 @@ namespace PowerTimer {
   }
   void WireUi() {
    if (test) {
-    main.Title += " [ТЕСТ]"; widget.Title += " [ТЕСТ]";
+    widget.Title += " [ТЕСТ]";
     Find<TextBlock>(main, "TestBadge").Visibility = Visibility.Visible;
    }
    foreach (Window window in new[] { main, widget }) {
     window.Closing += delegate(object s, System.ComponentModel.CancelEventArgs e) { if (exiting) return; e.Cancel = true; CloseRequested(); };
     window.StateChanged += delegate { if (window.WindowState == WindowState.Minimized && prefs.minimizeToTray) { HideAll(); window.WindowState = WindowState.Normal; } };
-    window.PreviewKeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Escape) { HideAll(); e.Handled = true; } };
+    window.PreviewKeyDown += delegate(object s, KeyEventArgs e) {
+     if (e.Key != Key.Escape || (window == main && actionPicker.IsDropDownOpen)) return;
+     HideAll(); e.Handled = true;
+    };
    }
    DragOn(Find<Grid>(main, "DragArea"), main); DragOn(Find<Grid>(widget, "WidgetDrag"), widget);
    Click(main, "WidgetButton", ShowWidget); Click(main, "SettingsButton", OpenSettings);
    Click(main, "HideButton", delegate { if (prefs.minimizeToTray) HideAll(); else main.WindowState = WindowState.Minimized; });
    Click(main, "CloseButton", CloseRequested);
-   Click(main, "StartButton", delegate { engine.Start(selectedSeconds); });
+   actionPicker.SelectionChanged += delegate { if (!engine.Active) Update(); };
+   Click(main, "StartButton", delegate { StartTimer(selectedSeconds, SelectedPowerAction); });
    Click(main, "PauseButton", TogglePause); Click(main, "CancelButton", engine.Cancel);
-   Click(widget, "WidgetPause", delegate { if (engine.Active) TogglePause(); else engine.Start(selectedSeconds); });
+   Click(widget, "WidgetPause", delegate { if (engine.Active) TogglePause(); else StartTimer(selectedSeconds, SelectedPowerAction); });
    Click(widget, "WidgetExpandButton", delegate { SetWidgetExpanded(!widgetExpanded); });
    Click(widget, "WidgetCancel", engine.Cancel); Click(widget, "WidgetOpenMain", ShowMain); Click(widget, "WidgetHide", HideAll);
    widget.SizeChanged += delegate { if (initialized && widget.IsVisible) ClampWidget(); };
@@ -131,9 +140,9 @@ namespace PowerTimer {
    for (int i = 0; i < prefs.presetMinutes.Length; i++) {
     int seconds = prefs.presetMinutes[i] * 60;
     var b = new Button { Name = "PresetButton" + i, Content = ShortDuration(seconds), Margin = new Thickness(3), Tag = seconds };
-    int index = i; AutomationProperties.SetName(b, "Выключить через " + ShortDuration(seconds)); b.Click += delegate { Try(delegate { selectedSeconds = seconds; selectedIndex = index; RefreshSelection(); }); };
+    int index = i; AutomationProperties.SetName(b, "Выбрать " + ShortDuration(seconds)); b.Click += delegate { Try(delegate { selectedSeconds = seconds; selectedIndex = index; RefreshSelection(); }); };
     main.RegisterName(b.Name, b); panel.Children.Add(b);
-    trayPresets.DropDownItems.Add(ShortDuration(seconds), null, delegate { OnUi(delegate { Try(delegate { engine.Start(seconds); }); }); });
+    trayPresets.DropDownItems.Add(ShortDuration(seconds), null, delegate { OnUi(delegate { Try(delegate { StartTimer(seconds, SelectedPowerAction); }); }); });
    }
    var own = new Button { Name = "PresetButton7", Content = "Своё время", Margin = new Thickness(3) };
    own.Click += delegate { Try(OpenCustom); }; main.RegisterName(own.Name, own); panel.Children.Add(own);
@@ -174,7 +183,7 @@ namespace PowerTimer {
    Store.Write(Path.Combine(folder, "api.json"), new { version = 1, baseUrl = "http://127.0.0.1:" + api.Port + "/", token = token, pid = Process.GetCurrentProcess().Id, testMode = test, executable = Assembly.GetExecutingAssembly().Location });
    initialized = true; Persist(true); UpdateSleep(); Update(); ScheduleTick();
    if (hidden || (startup && prefs.startInTray)) HideAll(); else if (compact || prefs.widgetMode) ShowWidget(); else ShowMain();
-   Log(test ? "Started TEST 2.3.0 (no power actions)" : "Started 2.3.0");
+   Log(test ? "Started TEST 2.4.0 (no power actions)" : "Started 2.4.0");
   }
   void OnUi(Action action) {
    if (!exiting && !exitPending && !app.Dispatcher.HasShutdownStarted)
@@ -182,7 +191,20 @@ namespace PowerTimer {
   }
   void Try(Action action) { if (exiting || exitPending) return; try { uiNotice = null; action(); Update(); ScheduleTick(); } catch (Exception ex) { ShowError(ex.Message); } }
   public void ShowError(string text) { uiNotice = text; noticeUntil = clock.Elapsed + 12; lastRenderKey = null; Update(); ScheduleTick(); if (!main.IsVisible && !Visible(settings)) ShowMain(); }
-  void TogglePause() { if (engine.State == "paused") engine.Resume(); else engine.Pause(); }
+  string SelectedPowerAction { get { return (string)actionPicker.SelectedValue ?? TimerEngine.ShutdownAction; } }
+  void EnsureActionAvailable(string action) {
+   if (action == TimerEngine.HibernateAction && !test && !IsPwrHibernateAllowed())
+    throw new InvalidOperationException("Гибернация недоступна в текущих настройках Windows.");
+  }
+  void StartTimer(double seconds, string action) {
+   EnsureActionAvailable(action);
+   engine.Start(seconds, action);
+  }
+  void ResumeTimer() {
+   if (engine.State == "paused") EnsureActionAvailable(engine.ScheduledAction);
+   engine.Resume();
+  }
+  void TogglePause() { if (engine.State == "paused") ResumeTimer(); else engine.Pause(); }
   void Tick() {
    if (test) testTickCount++;
    double elapsed = clock.Elapsed;
@@ -191,7 +213,11 @@ namespace PowerTimer {
     if (prefs.notifyBeforeShutdown) Notify("Таймер снят", "Срок прошёл во время сна или приостановки приложения.");
    }
    lastTick = elapsed; engine.Tick(); if (uiNotice != null && elapsed > noticeUntil) uiNotice = null; Update();
-   if (prefs.notifyBeforeShutdown && engine.State == "running" && engine.Remaining <= 60 && !warned) { warned = true; Notify("Выключение компьютера", "Осталось " + (int)Math.Ceiling(engine.Remaining) + " сек."); }
+   if (prefs.notifyBeforeShutdown && engine.State == "running" && engine.Remaining <= 60 && !warned) {
+    warned = true;
+    string title = engine.ScheduledAction == TimerEngine.HibernateAction ? "Гибернация компьютера" : "Выключение компьютера";
+    Notify(title, "Осталось " + (int)Math.Ceiling(engine.Remaining) + " сек.");
+   }
    ScheduleTick();
   }
   // No timer, polling, or disk heartbeat is needed when idle or paused.
@@ -209,10 +235,26 @@ namespace PowerTimer {
   void Update() {
    if (main == null || widget == null) return;
    string state = engine.State;
-   string key = state + ":" + Math.Ceiling(engine.Remaining).ToString(CultureInfo.InvariantCulture) + ":" + uiNotice + ":" + effectiveTheme;
+   bool active = engine.Active;
+   string action = active ? engine.ScheduledAction : SelectedPowerAction;
+   string key = state + ":" + Math.Ceiling(engine.Remaining).ToString(CultureInfo.InvariantCulture) + ":" + uiNotice + ":" + effectiveTheme + ":" + action;
    if (key == lastRenderKey) return; lastRenderKey = key;
-   bool active = engine.Active; string time = active ? TimerEngine.Format(engine.Remaining) : "--:--:--";
-   string label = state == "running" ? "ДО ВЫКЛЮЧЕНИЯ" : state == "paused" ? "ПАУЗА" : state == "completed" ? (test ? "ТЕСТ ЗАВЕРШЁН" : "ЗАПРОШЕНО ВЫКЛЮЧЕНИЕ") : state == "error" ? "ОШИБКА" : "ТАЙМЕР НЕ ЗАПУЩЕН";
+   if (active) {
+    actionPicker.IsDropDownOpen = false;
+    actionPicker.SelectedValue = action;
+   }
+   actionPicker.IsEnabled = !active;
+   bool hibernate = action == TimerEngine.HibernateAction;
+   main.Title = (hibernate ? "Таймер гибернации" : "Таймер выключения") + (test ? " [ТЕСТ]" : "");
+   string time = active ? TimerEngine.Format(engine.Remaining) : "--:--:--";
+   string label;
+   switch (state) {
+    case "running": label = hibernate ? "ДО ГИБЕРНАЦИИ" : "ДО ВЫКЛЮЧЕНИЯ"; break;
+    case "paused": label = "ПАУЗА"; break;
+    case "completed": label = test ? "ТЕСТ ЗАВЕРШЁН" : engine.Message.ToUpperInvariant(); break;
+    case "error": label = "ОШИБКА"; break;
+    default: label = "ТАЙМЕР НЕ ЗАПУЩЕН"; break;
+   }
    string deadline = engine.Deadline.HasValue ? engine.Deadline.Value.ToLocalTime().ToString("dd.MM · HH:mm:ss") : "";
    Brush color = (Brush)app.Resources[state == "running" && engine.Remaining <= 60 ? "UrgentBrush" : "AccentBrush"];
    Find<TextBlock>(main, "Countdown").Text = time; Find<TextBlock>(main, "Countdown").Foreground = color;
@@ -235,16 +277,28 @@ namespace PowerTimer {
    if (tray != null) {
     tray.Text = "Power Timer — " + (active ? (state == "paused" ? "пауза " : "осталось ") + time : "таймер не запущен");
     trayPause.Enabled = trayCancel.Enabled = active; trayPause.Text = state == "paused" ? "Продолжить" : "Пауза";
+    trayPresets.Text = hibernate ? "Гибернация через" : "Выключить через";
+    trayCancel.Text = hibernate ? "Отменить гибернацию" : "Отменить выключение";
    }
   }
   void UpdateSleep() {
    bool hold = !test && prefs.keepAwake && engine.State == "running"; if (hold == sleepHeld) return;
    if (SetThreadExecutionState(Continuous | (hold ? SystemRequired : 0)) == 0) { Log("SetThreadExecutionState failed: " + Marshal.GetLastWin32Error()); return; } sleepHeld = hold;
   }
-  void ExecutePowerOff() {
-   Log(test ? "TEST: would request shutdown /s /t 0" : "Requesting graceful Windows shutdown"); if (test) return;
-   var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "shutdown.exe"), "/s /t 0 /d p:0:0") { UseShellExecute = false, CreateNoWindow = true };
-   using (var process = Process.Start(start)) { if (!process.WaitForExit(5000)) throw new IOException("Команда не ответила."); if (process.ExitCode != 0) throw new IOException("Код Windows: " + process.ExitCode + "."); }
+  void ExecutePowerAction(string action) {
+   bool hibernate = action == TimerEngine.HibernateAction;
+   string arguments = hibernate ? "/h" : "/s /t 0 /d p:0:0";
+   if (test) {
+    Log("TEST: would request shutdown " + arguments);
+    return;
+   }
+   EnsureActionAvailable(action);
+   Log(hibernate ? "Requesting Windows hibernation" : "Requesting graceful Windows shutdown");
+   var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "shutdown.exe"), arguments) { UseShellExecute = false, CreateNoWindow = true };
+   using (var process = Process.Start(start)) {
+    if (!process.WaitForExit(5000)) throw new IOException("Команда не ответила.");
+    if (process.ExitCode != 0) throw new IOException("Код Windows: " + process.ExitCode + ".");
+   }
   }
   void Notify(string title, string text) { tray.BalloonTipTitle = title; tray.BalloonTipText = text; tray.BalloonTipIcon = Forms.ToolTipIcon.Info; tray.ShowBalloonTip(6000); }
   void RestoreUi() {
@@ -310,9 +364,9 @@ namespace PowerTimer {
   }
   object Snapshot() {
    Size size = WidgetSize();
-   return new { version = 1, appVersion = "2.3.0", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
+   return new { version = 1, appVersion = "2.4.0", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
     deadlineUtc = engine.Deadline.HasValue ? engine.Deadline.Value.ToString("o") : null, deadlineLocal = engine.Deadline.HasValue ? engine.Deadline.Value.ToLocalTime().ToString("o") : null,
-    totalSeconds = engine.Total, action = "shutdown", testMode = test, ui = main.IsVisible ? "show" : widget.IsVisible ? "widget" : "tray", settingsOpen = Visible(settings), customOpen = Visible(custom), selectedSeconds = selectedSeconds, selectedIndex = selectedIndex,
+    totalSeconds = engine.Total, action = engine.State == "idle" ? SelectedPowerAction : engine.ScheduledAction, testMode = test, ui = main.IsVisible ? "show" : widget.IsVisible ? "widget" : "tray", settingsOpen = Visible(settings), customOpen = Visible(custom), selectedSeconds = selectedSeconds, selectedIndex = selectedIndex,
     widgetExpanded = widgetExpanded, widgetWidth = size.Width, widgetHeight = size.Height, widgetLeft = widget.Left, widgetTop = widget.Top, widgetOpacity = widget.Opacity, widgetTopmost = widget.Topmost,
     effectiveTheme = effectiveTheme, keepAwake = prefs.keepAwake, sleepPreventionActive = sleepHeld, message = engine.Message };
   }
@@ -330,10 +384,16 @@ namespace PowerTimer {
     if (method == "POST" && route == "/v1/settings") {
      if (Visible(settings)) throw new ApiError(409, "Settings are being edited"); CommitPreferences(Preferences.Patch(prefs, data), false); return SettingsSnapshot();
     }
-    if (method == "POST" && route == "/v1/timer") engine.Start(Seconds(data));
+    if (method == "POST" && (route == "/v1/timer" || route == "/v1/timer/hibernate")) {
+     string action = route == "/v1/timer" ? TimerEngine.ShutdownAction : TimerEngine.HibernateAction;
+     object suppliedAction;
+     if (data.TryGetValue("action", out suppliedAction) && !action.Equals(suppliedAction))
+      throw new ApiError(400, "Action must match the endpoint. Use POST /v1/timer/hibernate for hibernation.");
+     StartTimer(Seconds(data), action);
+    }
     else if (method == "DELETE" && route == "/v1/timer") engine.Cancel();
     else if (method == "POST" && route == "/v1/pause") engine.Pause();
-    else if (method == "POST" && route == "/v1/resume") engine.Resume();
+    else if (method == "POST" && route == "/v1/resume") ResumeTimer();
     else if (method == "POST" && route == "/v1/extend") engine.Extend(Seconds(data));
     else if (method == "POST" && route == "/v1/widget") { object value; if (!data.TryGetValue("expanded", out value) || !(value is bool)) throw new ApiError(400, "expanded must be a boolean"); if (!widget.IsVisible) ShowWidget(); SetWidgetExpanded((bool)value); }
     else if (method == "POST" && route == "/v1/widget/reset") { PlaceWidget(false); SaveWidgetPosition(); Persist(); }

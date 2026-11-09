@@ -56,7 +56,7 @@
        <CheckBox x:Name="StartupTrayCheck" Content="При автозапуске открывать в трее"/>
        <CheckBox x:Name="CloseToTrayCheck" Content="При закрытии сворачивать в трей"/>
        <CheckBox x:Name="MinimizeToTrayCheck" Content="При сворачивании убирать в трей"/>
-       <CheckBox x:Name="NotifyCheck" Content="Уведомлять за минуту до выключения"/>
+       <CheckBox x:Name="NotifyCheck" Content="Уведомлять за минуту до действия"/>
       </StackPanel>
      </Border>
      <Border Style="{StaticResource SettingsSection}" Margin="0">
