@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -39,6 +40,13 @@ namespace PowerTimer {
             RequireTestHarness();
             Window window = TestWindow(TestString(data, "window"));
             string action = TestString(data, "action");
+            if (action == "trayPreset") {
+                string mode = TestString(data, "mode");
+                var menu = mode == TimerEngine.ShutdownAction ? trayShutdown : mode == TimerEngine.HibernateAction ? trayHibernate : null;
+                if (menu == null || !menu.Available) throw new ApiError(400, "Tray preset unavailable");
+                menu.DropDownItems[0].PerformClick();
+                return Snapshot();
+            }
             if (action == "stall") {
                 int milliseconds = Preferences.Integer(TestValue(data), "value");
                 if (milliseconds < 1 || milliseconds > 20000) throw new ApiError(400, "stall range is 1..20000 ms");
@@ -62,6 +70,16 @@ namespace PowerTimer {
             if (!control.IsVisible) throw new ApiError(400, "Control is hidden: " + name);
             if (!control.IsEnabled) throw new ApiError(400, "Control is disabled: " + name);
             switch (action) {
+                case "doubleClick": {
+                    if (window != widget || name != "WidgetDrag" || widgetExpanded)
+                        throw new ApiError(400, "doubleClick requires the compact widget");
+                    var input = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left);
+                    // WPF's input manager normally sets the click count before routing the event.
+                    typeof(MouseButtonEventArgs).GetProperty("ClickCount").SetValue(input, 2, null);
+                    input.RoutedEvent = UIElement.MouseLeftButtonDownEvent;
+                    control.RaiseEvent(input);
+                    break;
+                }
                 case "scroll": {
                     var scroll = control as ScrollViewer;
                     if (scroll == null) throw new ApiError(400, "scroll requires a ScrollViewer");
@@ -188,7 +206,10 @@ namespace PowerTimer {
             }
             var areas = new List<object>();
             foreach (Rect area in WorkAreas()) areas.Add(new { left = area.Left, top = area.Top, width = area.Width, height = area.Height });
-            return new { windows = windows, workAreas = areas, timerWakeupScheduled = ticker.IsEnabled, tickCount = testTickCount };
+            var trayMenu = new List<string>();
+            foreach (System.Windows.Forms.ToolStripItem item in tray.ContextMenuStrip.Items)
+                if (item.Available && !String.IsNullOrEmpty(item.Text)) trayMenu.Add(item.Text);
+            return new { windows = windows, workAreas = areas, trayMenu = trayMenu, timerWakeupScheduled = ticker.IsEnabled, tickCount = testTickCount };
         }
         sealed class TestWindowState {
             public Window Window;

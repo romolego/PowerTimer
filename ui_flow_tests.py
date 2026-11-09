@@ -1,8 +1,27 @@
-from test_support import call, click, change, ui, reset
+from test_support import call, click, change, ui, reset, wait_for
+
+
+def check_tray_menu():
+    idle = ['Открыть главное окно', 'Настройки', 'Выключить через', 'Гибернация через', 'Выход']
+    assert call('v1/test/ui')['trayMenu'] == idle
+    first_interval = call('v1/settings')['settings']['presetMinutes'][0] * 60
+    for mode in ('shutdown', 'hibernate'):
+        call('v1/test/interaction', {'window': 'main', 'action': 'trayPreset', 'mode': mode})
+        wait_for(lambda: call('v1/status')['state'] == 'running')
+        status = call('v1/status')
+        assert status['action'] == mode and status['totalSeconds'] == first_interval
+        active = ['Открыть главное окно', 'Показать виджет', 'Настройки', 'Пауза', 'Отменить таймер', 'Выход']
+        assert call('v1/test/ui')['trayMenu'] == active
+        call('v1/pause', {})
+        active[3] = 'Продолжить'
+        assert call('v1/test/ui')['trayMenu'] == active
+        call('v1/timer', method='DELETE')
+        assert call('v1/test/ui')['trayMenu'] == idle
 
 
 def main():
     reset()
+    check_tray_menu()
     idle = ui()
     assert not idle['TimerCard']['visible'] and idle['StartButton']['visible']
     assert not idle['ActiveActions']['visible'] and not idle['WidgetButton']['visible']
@@ -19,6 +38,10 @@ def main():
     click('main', 'WidgetButton')
     state = call('v1/status')
     assert state['ui'] == 'widget' and state['widgetHeight'] < 65 and not state['widgetExpanded']
+    opened = call('v1/test/interaction', {'window': 'widget', 'action': 'doubleClick', 'control': 'WidgetDrag'})
+    assert opened['ui'] == 'show' and opened['state'] == 'paused'
+    assert opened['action'] == state['action'] and opened['remainingSeconds'] == state['remainingSeconds']
+    click('main', 'WidgetButton')
     click('widget', 'WidgetExpandButton')
     click('widget', 'WidgetPause')
     assert call('v1/status')['state'] == 'running'
@@ -49,7 +72,7 @@ def main():
     assert ui()['PowerActionSelect']['enabled']
     change('main', 'PowerActionSelect', 'select', 'shutdown')
     call('v1/test/render', {'suffix': 'idle'})
-    print('PASS: shutdown/hibernation selector, start, pause, resume, cancel, custom dialog, widget, rendered windows.')
+    print('PASS: tray states and both tray presets, action selector, start, pause, resume, cancel, custom dialog, widget double-click and controls.')
 
 
 if __name__ == '__main__':

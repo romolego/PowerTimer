@@ -33,7 +33,7 @@ namespace PowerTimer {
   int selectedSeconds, selectedIndex;
   string selectedPowerAction;
   readonly Forms.NotifyIcon tray;
-  readonly Forms.ToolStripMenuItem trayPause, trayCancel, trayPresets;
+  readonly Forms.ToolStripMenuItem trayWidget, trayPause, trayCancel, trayShutdown, trayHibernate;
   readonly System.Drawing.Icon trayIcon;
   readonly DispatcherTimer ticker; LocalApi api;
   bool exiting, exitPending, initialized, sleepHeld, warned, widgetExpanded;
@@ -60,11 +60,13 @@ namespace PowerTimer {
     tray = new Forms.NotifyIcon { Icon = trayIcon, Visible = true, Text = "Power Timer" };
    }
    var menu = new Forms.ContextMenuStrip();
-   menu.Items.Add("Открыть таймер", null, delegate { OnUi(ShowMain); }); menu.Items.Add("Показать виджет", null, delegate { OnUi(ShowWidget); });
+   menu.Items.Add("Открыть главное окно", null, delegate { OnUi(ShowMain); });
+   trayWidget = new Forms.ToolStripMenuItem("Показать виджет", null, delegate { OnUi(ShowWidget); }); menu.Items.Add(trayWidget);
    menu.Items.Add("Настройки", null, delegate { OnUi(OpenSettings); });
-   trayPresets = new Forms.ToolStripMenuItem("Выключить через"); menu.Items.Add(trayPresets);
+   trayShutdown = new Forms.ToolStripMenuItem("Выключить через"); menu.Items.Add(trayShutdown);
+   trayHibernate = new Forms.ToolStripMenuItem("Гибернация через"); menu.Items.Add(trayHibernate);
    trayPause = new Forms.ToolStripMenuItem("Пауза", null, delegate { OnUi(delegate { Try(TogglePause); }); }); menu.Items.Add(trayPause);
-   trayCancel = new Forms.ToolStripMenuItem("Отменить выключение", null, delegate { OnUi(engine.Cancel); }); menu.Items.Add(trayCancel);
+   trayCancel = new Forms.ToolStripMenuItem("Отменить таймер", null, delegate { OnUi(engine.Cancel); }); menu.Items.Add(trayCancel);
    menu.Items.Add(new Forms.ToolStripSeparator()); menu.Items.Add("Выход", null, delegate { OnUi(RequestExit); });
    tray.ContextMenuStrip = menu; tray.DoubleClick += delegate { OnUi(ShowMain); };
    WireUi(); ApplyPreferences(true);
@@ -88,7 +90,34 @@ namespace PowerTimer {
   void DragOn(Grid handle, Window window) {
    handle.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) {
     if (e.LeftButton != MouseButtonState.Pressed || IsControl(e.OriginalSource as DependencyObject)) return;
-    window.DragMove(); if (window == widget) { ClampWidget(); if (widgetExpanded) widgetCompactAnchor = new Point(widget.Left, widget.Top); SaveWidgetPosition(); Persist(); }
+    window.DragMove();
+   };
+  }
+  void WireWidgetDrag(Grid handle) {
+   Point press = new Point();
+   handle.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) {
+    if (IsControl(e.OriginalSource as DependencyObject)) return;
+    e.Handled = true;
+    if (!widgetExpanded && e.ClickCount == 2) {
+     Try(ShowMain);
+     return;
+    }
+    press = e.GetPosition(widget);
+    handle.CaptureMouse();
+   };
+   handle.MouseLeftButtonUp += delegate { if (handle.IsMouseCaptured) handle.ReleaseMouseCapture(); };
+   handle.MouseMove += delegate(object s, MouseEventArgs e) {
+    if (!handle.IsMouseCaptured) return;
+    if (e.LeftButton != MouseButtonState.Pressed) { handle.ReleaseMouseCapture(); return; }
+    Vector motion = e.GetPosition(widget) - press;
+    if (Math.Abs(motion.X) < SystemParameters.MinimumHorizontalDragDistance &&
+        Math.Abs(motion.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+    handle.ReleaseMouseCapture();
+    widget.DragMove();
+    ClampWidget();
+    if (widgetExpanded) widgetCompactAnchor = new Point(widget.Left, widget.Top);
+    SaveWidgetPosition();
+    Persist();
    };
   }
   void WireUi() {
@@ -104,7 +133,8 @@ namespace PowerTimer {
      HideAll(); e.Handled = true;
     };
    }
-   DragOn(Find<Grid>(main, "DragArea"), main); DragOn(Find<Grid>(widget, "WidgetDrag"), widget);
+   DragOn(Find<Grid>(main, "DragArea"), main);
+   WireWidgetDrag(Find<Grid>(widget, "WidgetDrag"));
    Click(main, "WidgetButton", ShowWidget); Click(main, "SettingsButton", OpenSettings);
    Click(main, "HideButton", delegate { if (prefs.minimizeToTray) HideAll(); else main.WindowState = WindowState.Minimized; });
    Click(main, "CloseButton", CloseRequested);
@@ -143,16 +173,23 @@ namespace PowerTimer {
    var panel = Find<UniformGrid>(main, "Presets");
    for (int i = 0; i < 8; i++) if (main.FindName("PresetButton" + i) != null) main.UnregisterName("PresetButton" + i);
    panel.Children.Clear();
-   while (trayPresets.DropDownItems.Count > 0) trayPresets.DropDownItems[0].Dispose();
+   foreach (var menu in new[] { trayShutdown, trayHibernate })
+    while (menu.DropDownItems.Count > 0) menu.DropDownItems[0].Dispose();
    for (int i = 0; i < prefs.presetMinutes.Length; i++) {
     int seconds = prefs.presetMinutes[i] * 60;
     var b = new Button { Name = "PresetButton" + i, Content = ShortDuration(seconds), Margin = new Thickness(3), Tag = seconds };
     int index = i; AutomationProperties.SetName(b, "Выбрать " + ShortDuration(seconds)); b.Click += delegate { Try(delegate { selectedSeconds = seconds; selectedIndex = index; RefreshSelection(); }); };
     main.RegisterName(b.Name, b); panel.Children.Add(b);
-    trayPresets.DropDownItems.Add(ShortDuration(seconds), null, delegate { OnUi(delegate { Try(delegate { StartTimer(seconds, CurrentPowerAction); }); }); });
+    AddTrayPreset(trayShutdown, seconds, TimerEngine.ShutdownAction);
+    AddTrayPreset(trayHibernate, seconds, TimerEngine.HibernateAction);
    }
    var own = new Button { Name = "PresetButton7", Content = "Своё время", Margin = new Thickness(3) };
    own.Click += delegate { Try(OpenCustom); }; main.RegisterName(own.Name, own); panel.Children.Add(own);
+  }
+  void AddTrayPreset(Forms.ToolStripMenuItem menu, int seconds, string action) {
+   menu.DropDownItems.Add(ShortDuration(seconds), null, delegate {
+    OnUi(delegate { if (!engine.Active) Try(delegate { StartTimer(seconds, action); }); });
+   });
   }
   void OpenCustom() {
    EnsureCustom();
@@ -190,7 +227,7 @@ namespace PowerTimer {
    Store.Write(Path.Combine(folder, "api.json"), new { version = 1, baseUrl = "http://127.0.0.1:" + api.Port + "/", token = token, pid = Process.GetCurrentProcess().Id, testMode = test, executable = Assembly.GetExecutingAssembly().Location });
    initialized = true; Persist(true); UpdateSleep(); Update(); ScheduleTick();
    if (hidden || (startup && prefs.startInTray)) HideAll(); else if (compact || prefs.widgetMode) ShowWidget(); else ShowMain();
-   Log(test ? "Started TEST 2.5.0 (no power actions)" : "Started 2.5.0");
+   Log(test ? "Started TEST 2.5.1 (no power actions)" : "Started 2.5.1");
   }
   void OnUi(Action action) {
    if (!exiting && !exitPending && !app.Dispatcher.HasShutdownStarted)
@@ -281,9 +318,9 @@ namespace PowerTimer {
    if (!active && widget.IsVisible) ShowMain();
    if (tray != null) {
     tray.Text = "Power Timer — " + (active ? (state == "paused" ? "пауза " : "осталось ") + time : "таймер не запущен");
-    trayPause.Enabled = trayCancel.Enabled = active; trayPause.Text = state == "paused" ? "Продолжить" : "Пауза";
-    trayPresets.Text = hibernate ? "Гибернация через" : "Выключить через";
-    trayCancel.Text = hibernate ? "Отменить гибернацию" : "Отменить выключение";
+    trayWidget.Available = trayPause.Available = trayCancel.Available = active;
+    trayShutdown.Available = trayHibernate.Available = !active;
+    trayPause.Text = state == "paused" ? "Продолжить" : "Пауза";
    }
   }
   void UpdateSleep() {
@@ -369,7 +406,7 @@ namespace PowerTimer {
   }
   object Snapshot() {
    Size size = WidgetSize();
-   return new { version = 1, appVersion = "2.5.0", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
+   return new { version = 1, appVersion = "2.5.1", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
     deadlineUtc = engine.Deadline.HasValue ? engine.Deadline.Value.ToString("o") : null, deadlineLocal = engine.Deadline.HasValue ? engine.Deadline.Value.ToLocalTime().ToString("o") : null,
     totalSeconds = engine.Total, action = engine.State == "idle" ? selectedPowerAction : engine.ScheduledAction, testMode = test, ui = main.IsVisible ? "show" : widget.IsVisible ? "widget" : "tray", settingsOpen = Visible(settings), customOpen = Visible(custom), selectedSeconds = selectedSeconds, selectedIndex = selectedIndex,
     widgetExpanded = widgetExpanded, widgetWidth = size.Width, widgetHeight = size.Height, widgetLeft = widget.Left, widgetTop = widget.Top, widgetOpacity = widget.Opacity, widgetTopmost = widget.Topmost,

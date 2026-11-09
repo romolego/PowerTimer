@@ -13,7 +13,7 @@
     </Border>
     <Border Background="{DynamicResource RaisedBg}" CornerRadius="8" Padding="2">
      <StackPanel Orientation="Horizontal">
-      <Button x:Name="WidgetOpenMain" Content="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="13" Width="28" Height="28" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Открыть таймер"/>
+      <Button x:Name="WidgetOpenMain" Content="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="13" Width="28" Height="28" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Открыть главное окно"/>
       <Button x:Name="WidgetHide" Content="—" FontSize="14" Width="28" Height="28" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Скрыть в трей"/>
      </StackPanel>
     </Border>
