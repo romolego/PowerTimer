@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace PowerTimer {
@@ -8,18 +9,56 @@ namespace PowerTimer {
             "yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"
         };
 
-        public static DateTime InitialLocal(DateTime now, bool nextHour) {
-            var minute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
-            var initial = nextHour ? minute.AddMinutes(60 - now.Minute) : minute.AddHours(1);
-            var zone = TimeZoneInfo.Local;
+        static DateTime Minute(DateTime value) {
+            return value.AddTicks(-(value.Ticks % TimeSpan.TicksPerMinute));
+        }
+
+        public static DateTime InitialLocal(DateTimeOffset now, string option, TimeZoneInfo zone) {
+            if (option == "now") return Minute(TimeZoneInfo.ConvertTime(now, zone).DateTime);
+            DateTime initial = Minute(TimeZoneInfo.ConvertTime(now.AddHours(1), zone).DateTime);
+            bool fullHour = option == "hour";
+            if (fullHour && initial.Minute != 0) initial = initial.AddMinutes(60 - initial.Minute);
             while (zone.IsInvalidTime(initial) || zone.IsAmbiguousTime(initial))
-                initial = initial.AddMinutes(1);
+                initial = initial.AddMinutes(fullHour ? 60 : 1);
             return initial;
+        }
+
+        public static DateTimeOffset Limit(DateTimeOffset now) { return now.AddSeconds(TimerEngine.MaximumSeconds); }
+
+        public static bool InWindow(DateTimeOffset target, DateTimeOffset now) {
+            return target > now && target <= Limit(now);
+        }
+
+        public static DateTime BoundaryDate(DateTimeOffset now, TimeZoneInfo zone, bool last) {
+            DateTime utc = Minute((last ? Limit(now) : now).UtcDateTime);
+            if (!last) utc = utc.AddMinutes(1);
+            DateTime local = TimeZoneInfo.ConvertTimeFromUtc(utc, zone);
+            while (zone.IsAmbiguousTime(local)) {
+                utc = utc.AddMinutes(last ? -1 : 1);
+                local = TimeZoneInfo.ConvertTimeFromUtc(utc, zone);
+            }
+            return local.Date;
+        }
+
+        public static List<string> Options(DateTime? date, DateTimeOffset now, TimeZoneInfo zone, int step) {
+            DateTime localNow = TimeZoneInfo.ConvertTime(now, zone).DateTime;
+            DateTime day = (date ?? localNow).Date;
+            DateTimeOffset limit = Limit(now);
+            var options = new List<string>();
+            for (int minute = 0; minute < 1440; minute += step) {
+                DateTime local = day.AddMinutes(minute);
+                if (!date.HasValue && local <= localNow) local = local.AddDays(1);
+                if (zone.IsInvalidTime(local) || zone.IsAmbiguousTime(local)) continue;
+                var target = new DateTimeOffset(local, zone.GetUtcOffset(local));
+                if (target > now && target <= limit)
+                    options.Add(local.ToString("HH:mm", CultureInfo.InvariantCulture));
+            }
+            return options;
         }
 
         public static DateTimeOffset Resolve(string time, DateTime? date, DateTimeOffset now, TimeZoneInfo zone) {
             TimeSpan value;
-            if (!TimeSpan.TryParseExact(time, ClockFormats, CultureInfo.InvariantCulture, out value) || value.TotalHours >= 24)
+            if (!TimeSpan.TryParseExact((time ?? "").Trim(), ClockFormats, CultureInfo.InvariantCulture, out value) || value.TotalHours >= 24)
                 throw new ArgumentException("Введите время в формате ЧЧ:ММ, например 23:30.");
             DateTime localNow = TimeZoneInfo.ConvertTime(now, zone).DateTime;
             DateTime local = DateTime.SpecifyKind((date ?? localNow).Date.Add(value), DateTimeKind.Unspecified);

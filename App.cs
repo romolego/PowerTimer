@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -28,10 +29,12 @@ namespace PowerTimer {
   readonly Application app; readonly string folder; readonly bool test;
   Preferences prefs; readonly TimerEngine engine; readonly SystemClock clock;
   readonly Window main, widget;
-  readonly ComboBox actionPicker, timingModePicker;
+  readonly ComboBox actionPicker, timingModePicker, scheduleClock;
   readonly DatePicker scheduleDate;
-  readonly TextBox scheduleClock;
-  DateTimeOffset? schedulePreviewTarget;
+  readonly System.ComponentModel.DependencyPropertyDescriptor scheduleTextProperty;
+  DateTimeOffset? scheduleTarget;
+  string scheduleError;
+  bool currentTimeDraft;
   bool loadingSchedule, selectingTimingMode, scheduleMode;
   Window settings, custom;
   int selectedSeconds, selectedIndex;
@@ -59,7 +62,9 @@ namespace PowerTimer {
    actionPicker = Find<ComboBox>(main, "PowerActionSelect");
    timingModePicker = Find<ComboBox>(main, "TimingModeSelect");
    scheduleDate = Find<DatePicker>(main, "ScheduleDate");
-   scheduleClock = Find<TextBox>(main, "ScheduleClock");
+   scheduleClock = Find<ComboBox>(main, "ScheduleClock");
+   scheduleTextProperty = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(ComboBox.TextProperty, typeof(ComboBox));
+   scheduleMode = prefs.defaultTimingMode == "schedule";
    main.MaxHeight = Math.Max(320, SystemParameters.WorkArea.Height - 24);
    using (Stream r = Resource("icon.ico")) {
     trayIcon = new System.Drawing.Icon(r);
@@ -76,7 +81,9 @@ namespace PowerTimer {
    trayCancel = new Forms.ToolStripMenuItem("Отменить таймер", null, delegate { OnUi(engine.Cancel); }); menu.Items.Add(trayCancel);
    menu.Items.Add(new Forms.ToolStripSeparator()); menu.Items.Add("Выход", null, delegate { OnUi(RequestExit); });
    tray.ContextMenuStrip = menu; tray.DoubleClick += delegate { OnUi(ShowMain); };
-   WireUi(); ApplyPreferences(true);
+   WireUi();
+   if (scheduleMode) InitializeScheduleInputs();
+   ApplyPreferences(true);
    ticker = new DispatcherTimer(DispatcherPriority.Normal, app.Dispatcher) { Interval = TimeSpan.FromSeconds(1) }; ticker.Tick += delegate { Tick(); };
    engine.Changed += delegate {
     if (Visible(custom)) CloseCustom();
@@ -159,8 +166,28 @@ namespace PowerTimer {
     uiNotice = null;
     Update();
    };
-   scheduleDate.SelectedDateChanged += delegate { ScheduleInputChanged(); };
-   scheduleClock.TextChanged += delegate { ScheduleInputChanged(); };
+   scheduleDate.SelectedDateChanged += delegate { ScheduleDateChanged(); };
+   scheduleDate.CalendarOpened += delegate {
+    var now = new DateTimeOffset(clock.UtcNow);
+    if (UpdateScheduleDates(now)) ScheduleDateChanged();
+    else UpdateScheduleValidation(now, false);
+   };
+   scheduleTextProperty.AddValueChanged(scheduleClock, ScheduleClockChanged);
+   scheduleClock.SelectionChanged += delegate {
+    if (!loadingSchedule && currentTimeDraft && scheduleClock.SelectedItem != null)
+     ScheduleClockChanged(null, EventArgs.Empty);
+   };
+   scheduleClock.DropDownOpened += delegate {
+    var now = new DateTimeOffset(clock.UtcNow);
+    if (!prefs.scheduleTimeOnly && UpdateScheduleDates(now)) ScheduleDateChanged();
+    else {
+     RefreshScheduleOptions(now, false);
+     UpdateScheduleValidation(now, false);
+    }
+   };
+   main.Activated += delegate {
+    if (!engine.Active && scheduleMode) UpdateScheduleValidation(new DateTimeOffset(clock.UtcNow), false);
+   };
    Click(main, "StartButton", StartFromMain);
    Click(main, "PauseButton", TogglePause); Click(main, "CancelButton", engine.Cancel);
    Click(widget, "WidgetPause", delegate { if (engine.Active) TogglePause(); else StartTimer(selectedSeconds, CurrentPowerAction); });
@@ -168,9 +195,20 @@ namespace PowerTimer {
    Click(widget, "WidgetCancel", engine.Cancel); Click(widget, "WidgetOpenMain", ShowMain); Click(widget, "WidgetHide", HideAll);
    widget.SizeChanged += delegate { if (initialized && widget.IsVisible) ClampWidget(); };
   }
-  void ScheduleInputChanged() {
+  void ScheduleClockChanged(object sender, EventArgs e) {
    if (loadingSchedule) return;
-   UpdateSchedulePreview();
+   currentTimeDraft = false;
+   ScheduleInputChanged(new DateTimeOffset(clock.UtcNow));
+  }
+  void ScheduleDateChanged() {
+   if (loadingSchedule || prefs.scheduleTimeOnly) return;
+   var now = new DateTimeOffset(clock.UtcNow);
+   currentTimeDraft = false;
+   RefreshScheduleOptions(now, true);
+   ScheduleInputChanged(now);
+  }
+  void ScheduleInputChanged(DateTimeOffset now) {
+   UpdateScheduleValidation(now, true);
    if (!engine.Active && uiNotice != null) {
     uiNotice = null;
     Update();
@@ -178,56 +216,99 @@ namespace PowerTimer {
    }
   }
   void InitializeScheduleInputs() {
-   DateTime now = clock.UtcNow.ToLocalTime();
-   DateTime initial = ScheduleTime.InitialLocal(now, prefs.scheduleNextHour);
+   var now = new DateTimeOffset(clock.UtcNow);
+   DateTime initial = ScheduleTime.InitialLocal(now, prefs.scheduleInitialTime, TimeZoneInfo.Local);
+   currentTimeDraft = prefs.scheduleInitialTime == "now";
    loadingSchedule = true;
    try {
     scheduleDate.SelectedDate = null;
-    scheduleDate.DisplayDateStart = now.Date;
-    scheduleDate.DisplayDateEnd = now.Date.AddDays(7);
-    scheduleDate.SelectedDate = initial.Date;
-    scheduleDate.DisplayDate = initial.Date;
-    scheduleClock.Text = initial.ToString("HH:mm", CultureInfo.InvariantCulture);
+    UpdateScheduleDates(now);
+    DateTime date = initial.Date < scheduleDate.DisplayDateStart.Value ? scheduleDate.DisplayDateStart.Value : initial.Date;
+    scheduleDate.SelectedDate = date;
+    scheduleDate.DisplayDate = date;
     var dateField = Find<StackPanel>(main, "ScheduleDateField");
     dateField.Visibility = prefs.scheduleTimeOnly ? Visibility.Collapsed : Visibility.Visible;
     var timeField = Find<StackPanel>(main, "ScheduleTimeField");
     Grid.SetColumn(timeField, prefs.scheduleTimeOnly ? 0 : 1);
     Grid.SetColumnSpan(timeField, prefs.scheduleTimeOnly ? 2 : 1);
+    scheduleClock.SelectedItem = null;
+    scheduleClock.Text = initial.ToString("HH:mm", CultureInfo.InvariantCulture);
    } finally { loadingSchedule = false; }
-   UpdateSchedulePreview();
+   bool advance = !prefs.scheduleTimeOnly && initial.Date != scheduleDate.SelectedDate.Value;
+   if (advance) currentTimeDraft = false;
+   RefreshScheduleOptions(now, advance);
+   UpdateScheduleValidation(now, true);
   }
-  DateTimeOffset ResolveScheduleInput() {
-   if (!prefs.scheduleTimeOnly && !scheduleDate.SelectedDate.HasValue)
-    throw new ArgumentException("Выберите дату.");
-   DateTime? date = prefs.scheduleTimeOnly ? null : scheduleDate.SelectedDate;
-   return ScheduleTime.Resolve(scheduleClock.Text, date, new DateTimeOffset(clock.UtcNow), TimeZoneInfo.Local);
-  }
-  void UpdateSchedulePreview() {
-   var preview = Find<TextBlock>(main, "SchedulePreview");
+  bool UpdateScheduleDates(DateTimeOffset now) {
+   DateTime first = ScheduleTime.BoundaryDate(now, TimeZoneInfo.Local, false);
+   DateTime last = ScheduleTime.BoundaryDate(now, TimeZoneInfo.Local, true);
+   DateTime? selected = scheduleDate.SelectedDate;
+   bool wasLoading = loadingSchedule;
+   loadingSchedule = true;
    try {
-    DateTimeOffset target = ResolveScheduleInput();
-    schedulePreviewTarget = target;
-    DateTime local = target.LocalDateTime;
-    DateTime today = clock.UtcNow.ToLocalTime().Date;
-    string day = local.Date == today ? "Сегодня" : local.Date == today.AddDays(1) ? "Завтра" : local.ToString("dd.MM.yyyy");
-    preview.Text = day + " · " + local.ToString("HH:mm");
-   } catch (ArgumentException) {
-    schedulePreviewTarget = null;
-    preview.Text = "";
+    if (selected.HasValue && (selected.Value < first || selected.Value > last)) scheduleDate.SelectedDate = null;
+    // WPF coerces each bound against the other one.
+    if (scheduleDate.DisplayDateStart > last) scheduleDate.DisplayDateStart = first;
+    scheduleDate.DisplayDateEnd = last;
+    scheduleDate.DisplayDateStart = first;
+    if (!scheduleDate.SelectedDate.HasValue && selected.HasValue)
+     scheduleDate.SelectedDate = selected.Value < first ? first : last;
+   } finally { loadingSchedule = wasLoading; }
+   return selected != scheduleDate.SelectedDate;
+  }
+  DateTimeOffset ResolveScheduleInput(DateTimeOffset now) {
+   DateTime? date = prefs.scheduleTimeOnly ? null : scheduleDate.SelectedDate;
+   if (!prefs.scheduleTimeOnly && !date.HasValue) throw new ArgumentException("Выберите дату.");
+   return ScheduleTime.Resolve(scheduleClock.Text, date, now, TimeZoneInfo.Local);
+  }
+  void RefreshScheduleOptions(DateTimeOffset now, bool adjustTime) {
+   DateTime? date = prefs.scheduleTimeOnly ? null : scheduleDate.SelectedDate;
+   var options = ScheduleTime.Options(date, now, TimeZoneInfo.Local, 15);
+   if (date.HasValue && options.Count == 0) options = ScheduleTime.Options(date, now, TimeZoneInfo.Local, 1);
+   string text = scheduleClock.Text;
+   if (adjustTime && options.Count > 0) {
+    bool valid;
+    try { valid = ScheduleTime.InWindow(ResolveScheduleInput(now), now); }
+    catch (ArgumentException) { valid = false; }
+    if (!valid) text = options[0];
    }
-   preview.Visibility = schedulePreviewTarget.HasValue ? Visibility.Visible : Visibility.Collapsed;
+   var previous = scheduleClock.ItemsSource as List<string>;
+   if (previous != null && previous.SequenceEqual(options) && scheduleClock.Text == text) return;
+   loadingSchedule = true;
+   try {
+    scheduleClock.ItemsSource = options;
+    scheduleClock.SelectedItem = options.Contains(text) && !currentTimeDraft ? text : null;
+    scheduleClock.Text = text;
+   } finally { loadingSchedule = false; }
+  }
+  void UpdateScheduleValidation(DateTimeOffset now, bool changed) {
+   if (changed) scheduleTarget = null;
+   scheduleError = null;
+   try {
+    if (currentTimeDraft) throw new ArgumentException("Выберите время в будущем.");
+    if (!scheduleTarget.HasValue) scheduleTarget = ResolveScheduleInput(now);
+    if (scheduleTarget.Value <= now) throw new ArgumentException("Выберите время в будущем.");
+    if (!ScheduleTime.InWindow(scheduleTarget.Value, now)) throw new ArgumentException("Выберите время в пределах ближайших 7 суток.");
+   } catch (ArgumentException ex) {
+    scheduleError = ex.Message;
+   }
+   bool tomorrow = scheduleError == null && prefs.scheduleTimeOnly && scheduleTarget.Value.LocalDateTime.Date > now.LocalDateTime.Date;
+   Find<TextBlock>(main, "ScheduleTimeLabel").Text = tomorrow ? "Время · завтра" : "Время";
+   UpdateStartButton();
+  }
+  void UpdateStartButton() {
+   var start = Find<Button>(main, "StartButton");
+   start.IsEnabled = !scheduleMode || scheduleError == null;
+   start.ToolTip = scheduleMode ? scheduleError : null;
   }
   void StartFromMain() {
    if (!scheduleMode) {
     StartTimer(selectedSeconds, CurrentPowerAction);
     return;
    }
-   DateTimeOffset target = ResolveScheduleInput();
-   if (schedulePreviewTarget.HasValue && target != schedulePreviewTarget.Value) {
-    UpdateSchedulePreview();
-    throw new InvalidOperationException("Это время уже прошло. Проверьте новую дату и нажмите «Запустить» ещё раз.");
-   }
-   StartSchedule(target, CurrentPowerAction);
+   UpdateScheduleValidation(new DateTimeOffset(clock.UtcNow), false);
+   if (scheduleError != null) throw new ArgumentException(scheduleError);
+   StartSchedule(scheduleTarget.Value, CurrentPowerAction);
   }
   static bool Visible(Window window) { return window != null && window.IsVisible; }
   void EnsureCustom() {
@@ -300,6 +381,12 @@ namespace PowerTimer {
   void OnTimeChanged(object sender, EventArgs e) {
    OnUi(delegate {
     TimeZoneInfo.ClearCachedData();
+    if (scheduleMode) {
+     var now = new DateTimeOffset(clock.UtcNow);
+     if (!prefs.scheduleTimeOnly && UpdateScheduleDates(now)) ScheduleDateChanged();
+     else RefreshScheduleOptions(now, false);
+     UpdateScheduleValidation(now, true);
+    }
     Persist(true);
     lastRenderKey = null;
     Update();
@@ -313,7 +400,7 @@ namespace PowerTimer {
    Store.Write(Path.Combine(folder, "api.json"), new { version = 1, baseUrl = "http://127.0.0.1:" + api.Port + "/", token = token, pid = Process.GetCurrentProcess().Id, testMode = test, executable = Assembly.GetExecutingAssembly().Location });
    initialized = true; Persist(true); UpdateSleep(); Update(); ScheduleTick();
    if (hidden || (startup && prefs.startInTray)) HideAll(); else if (compact || prefs.widgetMode) ShowWidget(); else ShowMain();
-   Log(test ? "Started TEST 2.6.0 (no power actions)" : "Started 2.6.0");
+   Log(test ? "Started TEST 2.6.1 (no power actions)" : "Started 2.6.1");
   }
   void OnUi(Action action) {
    if (!exiting && !exitPending && !app.Dispatcher.HasShutdownStarted)
@@ -412,6 +499,7 @@ namespace PowerTimer {
    Find<Button>(main, "PauseButton").IsEnabled = active; Find<Button>(main, "PauseButton").Content = state == "paused" ? "Продолжить" : "Пауза";
    Find<Border>(main, "TimerCard").Visibility = active ? Visibility.Visible : Visibility.Collapsed;
    Find<Button>(main, "StartButton").Visibility = active ? Visibility.Collapsed : Visibility.Visible;
+   UpdateStartButton();
    Find<UniformGrid>(main, "ActiveActions").Visibility = active ? Visibility.Visible : Visibility.Collapsed;
    Find<Button>(main, "WidgetButton").Visibility = active ? Visibility.Visible : Visibility.Collapsed;
    Find<UniformGrid>(main, "Presets").Visibility = !active && !showSchedule ? Visibility.Visible : Visibility.Collapsed;
@@ -499,6 +587,11 @@ namespace PowerTimer {
     prefs.widgetY = widgetExpanded && widgetCompactAnchor.HasValue ? widgetCompactAnchor.Value.Y : widget.Top;
    }
   }
+  void ResetWidgetPosition() {
+   prefs.widgetX = prefs.widgetY = null;
+   PlaceWidget(false);
+   Persist();
+  }
   void Persist(bool timerChanged = false) {
    if (!initialized) return;
    try {
@@ -510,7 +603,7 @@ namespace PowerTimer {
   }
   object Snapshot() {
    Size size = WidgetSize();
-   return new { version = 1, appVersion = "2.6.0", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
+   return new { version = 1, appVersion = "2.6.1", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
     deadlineUtc = engine.Deadline.HasValue ? engine.Deadline.Value.ToString("o") : null, deadlineLocal = engine.Deadline.HasValue ? engine.Deadline.Value.ToLocalTime().ToString("o") : null,
     timingMode = engine.ScheduledUtc.HasValue ? "schedule" : "timer",
     totalSeconds = engine.Total, action = engine.State == "idle" ? selectedPowerAction : engine.ScheduledAction, testMode = test, ui = main.IsVisible ? "show" : widget.IsVisible ? "widget" : "tray", settingsOpen = Visible(settings), customOpen = Visible(custom), selectedSeconds = selectedSeconds, selectedIndex = selectedIndex,
@@ -529,7 +622,7 @@ namespace PowerTimer {
     if (test && method == "POST" && route == "/v1/test/interaction") return TestInteraction(data);
     if (test && method == "GET" && route == "/v1/test/ui") return InspectTestUi();
     if (method == "POST" && route == "/v1/settings") {
-     if (Visible(settings)) throw new ApiError(409, "Settings are being edited"); CommitPreferences(Preferences.Patch(prefs, data), false); return SettingsSnapshot();
+     if (Visible(settings)) throw new ApiError(409, "Settings are being edited"); CommitPreferences(Preferences.Patch(prefs, data)); return SettingsSnapshot();
     }
     if (method == "POST" && route == "/v1/schedule") {
      object target, action;
@@ -549,7 +642,7 @@ namespace PowerTimer {
     else if (method == "POST" && route == "/v1/resume") ResumeTimer();
     else if (method == "POST" && route == "/v1/extend") engine.Extend(Seconds(data));
     else if (method == "POST" && route == "/v1/widget") { object value; if (!data.TryGetValue("expanded", out value) || !(value is bool)) throw new ApiError(400, "expanded must be a boolean"); if (!widget.IsVisible) ShowWidget(); SetWidgetExpanded((bool)value); }
-    else if (method == "POST" && route == "/v1/widget/reset") { PlaceWidget(false); SaveWidgetPosition(); Persist(); }
+    else if (method == "POST" && route == "/v1/widget/reset") ResetWidgetPosition();
     else if (method == "POST" && route == "/v1/ui") {
      object value; if (!data.TryGetValue("mode", out value) || !(value is string)) throw new ApiError(400, "mode must be show, widget, settings or tray");
      string mode = (string)value; if (mode == "restore") RestoreUi(); else if (mode == "show") ShowMain(); else if (mode == "widget") ShowWidget(); else if (mode == "settings") OpenSettings(); else if (mode == "tray") HideAll(); else throw new ApiError(400, "Unknown UI mode");
@@ -564,6 +657,7 @@ namespace PowerTimer {
   void Exit() { if (exiting) return; engine.Cancel(); exiting = true; ticker.Stop(); SetThreadExecutionState(Continuous); sleepHeld = false; Persist(); app.Shutdown(); }
   public void Log(string text) { try { string file = Path.Combine(folder, "activity.log"); if (File.Exists(file) && new FileInfo(file).Length > 262144) File.Delete(file); File.AppendAllText(file, DateTime.UtcNow.ToString("o") + " " + text + Environment.NewLine); } catch { } }
   public void Dispose() {
+   scheduleTextProperty.RemoveValueChanged(scheduleClock, ScheduleClockChanged);
    SystemEvents.UserPreferenceChanged -= OnSystemPreferences; SystemEvents.DisplaySettingsChanged -= OnDisplaysChanged; SystemEvents.TimeChanged -= OnTimeChanged;
    if (api != null) api.Dispose(); if (ticker != null) ticker.Stop(); SetThreadExecutionState(Continuous); if (tray != null) { tray.Visible = false; if (tray.ContextMenuStrip != null) tray.ContextMenuStrip.Dispose(); tray.Dispose(); } if (trayIcon != null) trayIcon.Dispose();
    try { File.Delete(Path.Combine(folder, "api.json")); } catch { } Log("Stopped");

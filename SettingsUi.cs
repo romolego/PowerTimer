@@ -10,8 +10,7 @@ using Microsoft.Win32;
 namespace PowerTimer {
  public sealed partial class TimerApplication {
   const string RunKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-  const string ResetPositionCaption = "Вернуть в угол";
-  bool settingsDraftLoaded, loadingSettings, resetWidgetOnSave;
+  bool settingsDraftLoaded, loadingSettings;
   string ReadRunValue() { using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) return key == null ? null : key.GetValue("PowerTimer") as string; }
   bool GetAutostart() {
    if (test) return prefs != null && prefs.startWithWindows;
@@ -23,7 +22,7 @@ namespace PowerTimer {
    using (var key = Registry.CurrentUser.CreateSubKey(RunKey)) { if (value == null) key.DeleteValue("PowerTimer", false); else key.SetValue("PowerTimer", value, RegistryValueKind.String); }
   }
   object SettingsSnapshot() { Preferences copy = prefs.Clone(); copy.startWithWindows = GetAutostart(); return new { settings = copy }; }
-  void CommitPreferences(Preferences next, bool resetPosition) {
+  void CommitPreferences(Preferences next) {
    next.Validate(); Preferences before = prefs;
    string oldRun = test ? null : ReadRunValue();
    string newRun = next.startWithWindows ? "\"" + Assembly.GetExecutingAssembly().Location + "\" --startup" : null;
@@ -37,10 +36,13 @@ namespace PowerTimer {
    }
    prefs = next; previewTheme = null;
    if (before.defaultAction != next.defaultAction) selectedPowerAction = next.defaultAction;
-   if (before.scheduleTimeOnly != next.scheduleTimeOnly || before.scheduleNextHour != next.scheduleNextHour)
+   bool changedMode = before.defaultTimingMode != next.defaultTimingMode;
+   if (changedMode) scheduleMode = next.defaultTimingMode == "schedule";
+   if (scheduleMode && (changedMode || before.scheduleTimeOnly != next.scheduleTimeOnly ||
+                        before.scheduleInitialTime != next.scheduleInitialTime))
     InitializeScheduleInputs();
    ApplyPreferences(before.presetMinutes[0] != next.presetMinutes[0]);
-   if (resetPosition || (before.rememberWidgetPosition && !next.rememberWidgetPosition)) PlaceWidget(false);
+   if (before.rememberWidgetPosition && !next.rememberWidgetPosition) PlaceWidget(false);
    SaveWidgetPosition(); Persist();
   }
   static string SelectedTag(ComboBox box) { var item = box.SelectedItem as ComboBoxItem; return item == null ? null : Convert.ToString(item.Tag); }
@@ -59,14 +61,10 @@ namespace PowerTimer {
    };
    Find<Button>(settings, "SettingsClose").Click += delegate { CancelSettings(); };
    Find<Button>(settings, "CancelSettingsButton").Click += delegate { CancelSettings(); };
-   var explanation = Find<TextBlock>(settings, "DefaultPresetExplanation");
-   Find<Button>(settings, "DefaultPresetHelp").Click += delegate {
-    explanation.Visibility = explanation.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-   };
    Find<Button>(settings, "SaveSettingsButton").Click += delegate {
     try {
-     Preferences next = ReadSettingsDraft(); CommitPreferences(next, resetWidgetOnSave);
-     settings.Hide(); settingsDraftLoaded = false; resetWidgetOnSave = false;
+     Preferences next = ReadSettingsDraft(); CommitPreferences(next);
+     settings.Hide(); settingsDraftLoaded = false;
     } catch (Exception ex) {
      var error = Find<TextBlock>(settings, "SettingsError"); error.Text = ex.Message; error.Visibility = Visibility.Visible;
     }
@@ -81,17 +79,16 @@ namespace PowerTimer {
    Find<Slider>(settings, "WidgetOpacitySlider").ValueChanged += delegate {
     Find<TextBlock>(settings, "WidgetOpacityText").Text = ((int)Find<Slider>(settings, "WidgetOpacitySlider").Value) + "%";
    };
-   Find<Button>(settings, "ResetWidgetPosition").Click += delegate {
-    resetWidgetOnSave = true; Find<Button>(settings, "ResetWidgetPosition").Content = ResetPositionCaption + " ✓";
-   };
+   Click(settings, "ResetWidgetPosition", ResetWidgetPosition);
   }
   void PrepareSettingsDraft() {
    loadingSettings = true;
    try {
     SelectTag("ThemeSelect", prefs.theme);
     SelectTag("DefaultActionSelect", prefs.defaultAction);
+    SelectTag("DefaultTimingModeSelect", prefs.defaultTimingMode);
     SelectTag("ScheduleDateOption", prefs.scheduleTimeOnly ? "time" : "date");
-    SelectTag("ScheduleTimeOption", prefs.scheduleNextHour ? "hour" : "later");
+    SelectTag("ScheduleTimeOption", prefs.scheduleInitialTime);
     for (int i = 0; i < 7; i++) Find<TextBox>(settings, "Preset" + i).Text = prefs.presetMinutes[i].ToString();
     SetCheck("KeepAwakeCheck", prefs.keepAwake); SetCheck("AutostartCheck", GetAutostart());
     SetCheck("StartupTrayCheck", prefs.startInTray); SetCheck("CloseToTrayCheck", prefs.closeToTray);
@@ -101,16 +98,15 @@ namespace PowerTimer {
     SelectTag("WidgetSizeSelect", prefs.widgetSize); Find<Slider>(settings, "WidgetOpacitySlider").Value = prefs.widgetOpacity;
     Find<TextBlock>(settings, "WidgetOpacityText").Text = prefs.widgetOpacity + "%";
     Find<TextBlock>(settings, "SettingsError").Text = ""; Find<TextBlock>(settings, "SettingsError").Visibility = Visibility.Collapsed;
-    Find<TextBlock>(settings, "DefaultPresetExplanation").Visibility = Visibility.Collapsed;
-    Find<Button>(settings, "ResetWidgetPosition").Content = ResetPositionCaption;
-    resetWidgetOnSave = false; settingsDraftLoaded = true;
+    settingsDraftLoaded = true;
    } finally { loadingSettings = false; }
   }
   Preferences ReadSettingsDraft() {
    Preferences next = prefs.Clone();
    next.defaultAction = SelectedTag(Find<ComboBox>(settings, "DefaultActionSelect"));
+   next.defaultTimingMode = SelectedTag(Find<ComboBox>(settings, "DefaultTimingModeSelect"));
    next.scheduleTimeOnly = SelectedTag(Find<ComboBox>(settings, "ScheduleDateOption")) == "time";
-   next.scheduleNextHour = SelectedTag(Find<ComboBox>(settings, "ScheduleTimeOption")) == "hour";
+   next.scheduleInitialTime = SelectedTag(Find<ComboBox>(settings, "ScheduleTimeOption"));
    next.theme = SelectedTag(Find<ComboBox>(settings, "ThemeSelect"));
    for (int i = 0; i < 7; i++) next.presetMinutes[i] = InputInt(settings, "Preset" + i);
    next.keepAwake = Check("KeepAwakeCheck"); next.startWithWindows = Check("AutostartCheck"); next.startInTray = Check("StartupTrayCheck");
@@ -134,6 +130,6 @@ namespace PowerTimer {
    settings.WindowStartupLocation = WindowStartupLocation.CenterScreen;
    settings.Show(); settings.WindowState = WindowState.Normal; settings.Activate();
   }
-  void CancelSettings() { settings.Hide(); settingsDraftLoaded = false; resetWidgetOnSave = false; previewTheme = null; ApplyTheme(prefs.theme); }
+  void CancelSettings() { settings.Hide(); settingsDraftLoaded = false; previewTheme = null; ApplyTheme(prefs.theme); }
  }
 }

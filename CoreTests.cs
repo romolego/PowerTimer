@@ -138,8 +138,17 @@ namespace PowerTimer {
             var tomorrow = new DateTimeOffset(now.Date.AddDays(1).AddHours(23).AddMinutes(30), TimeSpan.Zero);
             Check(ScheduleTime.Resolve("23:30", null, now, zone) == tomorrow, "time-only rolls to tomorrow");
             Check(ScheduleTime.Resolve("23:30", now.Date, now, zone) < now, "explicit past date does not roll over");
-            Check(ScheduleTime.InitialLocal(now.DateTime, true) == now.Date.AddDays(1), "next full hour crosses midnight");
-            Check(ScheduleTime.InitialLocal(now.DateTime, false) == now.DateTime.AddHours(1), "one hour default crosses midnight");
+            Check(ScheduleTime.InitialLocal(now, "now", zone) == now.DateTime, "current minute is the default");
+            Check(ScheduleTime.InitialLocal(now, "hour", zone) == now.Date.AddDays(1).AddHours(1), "one hour ahead rounded up crosses midnight");
+            Check(ScheduleTime.InitialLocal(now, "later", zone) == now.DateTime.AddHours(1), "one hour default crosses midnight");
+            Check(ScheduleTime.InitialLocal(now.AddMinutes(-45), "hour", zone) == now.Date.AddDays(1), "full hour stays on the hour");
+            var firstDay = ScheduleTime.Options(now.Date, now, zone, 15);
+            var lastDay = ScheduleTime.Options(now.Date.AddDays(7), now, zone, 15);
+            Check(firstDay.Count == 0 && ScheduleTime.Options(now.Date, now, zone, 1)[0] == "23:46", "first day has only future minutes");
+            Check(lastDay[lastDay.Count - 1] == "23:45", "last day includes only the allowed part");
+            Check(ScheduleTime.Options(now.Date.AddDays(8), now, zone, 15).Count == 0, "day beyond horizon has no options");
+            Check(ScheduleTime.BoundaryDate(now.AddMinutes(14), zone, false) == now.Date.AddDays(1),
+                  "calendar excludes today if no future minute remains");
             Reject(delegate { ScheduleTime.Resolve("24:00", null, now, zone); }, "invalid clock time rejected");
             Check(ScheduleTime.ParseTimestamp("2026-11-14T06:45:00+07:00") == now, "explicit offset parsed");
             Check(ScheduleTime.ParseTimestamp("2026-11-13T23:45:00.001Z") == now.AddMilliseconds(1), "fractional UTC timestamp parsed");

@@ -94,6 +94,11 @@ namespace PowerTimer {
                 }
                 case "text": {
                     var textBox = control as TextBox;
+                    var combo = control as ComboBox;
+                    if (combo != null && combo.IsEditable) {
+                        combo.ApplyTemplate();
+                        textBox = combo.Template.FindName("PART_EditableTextBox", combo) as TextBox;
+                    }
                     object value = TestValue(data);
                     if (textBox == null || !(value is string)) throw new ApiError(400, "text requires a TextBox and string value");
                     if (textBox.IsReadOnly) throw new ApiError(400, "TextBox is read-only: " + name);
@@ -106,6 +111,8 @@ namespace PowerTimer {
                     if (picker == null || !DateTime.TryParseExact(TestValue(data) as string, "yyyy-MM-dd",
                             CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
                         throw new ApiError(400, "date requires a DatePicker and yyyy-MM-dd");
+                    if (date < picker.DisplayDateStart || date > picker.DisplayDateEnd || picker.BlackoutDates.Contains(date))
+                        throw new ApiError(400, "Date is unavailable in the calendar");
                     picker.SelectedDate = date;
                     break;
                 }
@@ -120,6 +127,13 @@ namespace PowerTimer {
                     picker.IsDropDownOpen = false;
                     break;
                 }
+                case "dropdown": {
+                    var combo = control as ComboBox;
+                    object value = TestValue(data);
+                    if (combo == null || !(value is bool)) throw new ApiError(400, "dropdown requires a ComboBox and boolean value");
+                    combo.IsDropDownOpen = (bool)value;
+                    break;
+                }
                 case "check": {
                     var checkBox = control as CheckBox;
                     object value = TestValue(data);
@@ -132,6 +146,7 @@ namespace PowerTimer {
                     var combo = control as ComboBox;
                     object value = TestValue(data);
                     if (combo == null || !(value is string)) throw new ApiError(400, "select requires a ComboBox and string tag value");
+                    if (combo.IsEditable && combo.Items.Contains(value)) { combo.SelectedItem = value; break; }
                     ComboBoxItem selected = null;
                     foreach (object item in combo.Items) {
                         var candidate = item as ComboBoxItem;
@@ -170,6 +185,7 @@ namespace PowerTimer {
             if (checkBox != null) return checkBox.IsChecked;
             var combo = element as ComboBox;
             if (combo != null) {
+                if (combo.IsEditable) return combo.Text;
                 var selected = combo.SelectedItem as ComboBoxItem;
                 return selected == null ? null : Convert.ToString(selected.Tag, CultureInfo.InvariantCulture);
             }

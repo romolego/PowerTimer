@@ -6,7 +6,7 @@ import json
 import subprocess
 import time
 from urllib.error import HTTPError
-from test_support import call, connection, wait_for, reset, FOLDER, EXE
+from test_support import call, connection, wait_for, reset, ui, FOLDER, EXE
 
 kernel = ctypes.WinDLL('kernel32', use_last_error=True)
 kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -95,7 +95,8 @@ def main():
     assert firings() == baseline
     settings = call('v1/settings')['settings']
     presets = [37] + settings['presetMinutes'][1:]
-    call('v1/settings', {'defaultAction': 'hibernate', 'presetMinutes': presets})
+    call('v1/settings', {'defaultAction': 'hibernate', 'presetMinutes': presets,
+                         'defaultTimingMode': 'schedule', 'scheduleInitialTime': 'hour'})
     call('v1/test/interaction', {'window': 'main', 'action': 'exitRace'})
     wait_for(lambda: not (FOLDER / 'api.json').exists())
     assert json.loads((FOLDER / 'timer.json').read_text(encoding='utf-8-sig'))['state'] == 'idle'
@@ -103,9 +104,12 @@ def main():
     selected = call('v1/status')
     assert selected['state'] == 'idle' and selected['action'] == 'hibernate'
     assert selected['selectedIndex'] == 0 and selected['selectedSeconds'] == 37 * 60
+    call('v1/ui', {'mode': 'show'})
+    assert ui()['TimingModeSelect']['value'] == 'schedule' and ui()['ScheduleClock']['value'].endswith(':00')
     assert call('v1/timer', {'seconds': 600})['action'] == 'shutdown'
     assert call('v1/timer', method='DELETE')['action'] == 'hibernate'
-    call('v1/settings', {'defaultAction': settings['defaultAction'], 'presetMinutes': settings['presetMinutes']})
+    call('v1/settings', {key: settings[key] for key in
+                         ('defaultAction', 'presetMinutes', 'defaultTimingMode', 'scheduleInitialTime')})
     print('PASS: hibernation crash recovery, expired timer discard, corrupt storage, token rotation, stale requests, stalled deadline, exit race and saved defaults.')
 
 

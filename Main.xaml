@@ -78,13 +78,12 @@
         </DatePicker>
        </StackPanel>
        <StackPanel x:Name="ScheduleTimeField" Grid.Column="1">
-        <TextBlock Text="Время" Margin="0,0,0,5" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
-        <TextBox x:Name="ScheduleClock" MaxLength="5" Height="35" AutomationProperties.Name="Время действия в формате ЧЧ:ММ"/>
+        <TextBlock x:Name="ScheduleTimeLabel" Text="Время" Margin="0,0,0,5" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
+        <ComboBox x:Name="ScheduleClock" Height="35" IsEditable="True" IsTextSearchEnabled="False" AutomationProperties.Name="Время действия в формате ЧЧ:ММ"/>
        </StackPanel>
       </Grid>
-      <TextBlock x:Name="SchedulePreview" Margin="0,9,0,0" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
      </StackPanel>
-     <Button x:Name="StartButton" Content="Запустить" Height="42" Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource AccentTextBrush}" BorderBrush="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
+     <Button x:Name="StartButton" Content="Запустить" Height="42" Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource AccentTextBrush}" BorderBrush="{DynamicResource AccentBrush}" FontWeight="SemiBold" ToolTipService.ShowOnDisabled="True"/>
      <UniformGrid x:Name="ActiveActions" Columns="2" Visibility="Collapsed" Margin="-3,0,-3,0" Height="42">
       <Button x:Name="PauseButton" Content="Пауза" Margin="3,0"/>
       <Button x:Name="CancelButton" Content="Отменить" Margin="3,0" Foreground="{DynamicResource DangerBrush}" Background="{DynamicResource DangerBg}"/>

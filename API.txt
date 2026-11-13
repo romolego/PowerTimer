@@ -1,4 +1,4 @@
-POWER TIMER 2.6.0 — локальный HTTP API v1
+POWER TIMER 2.6.1 — локальный HTTP API v1
 
 CLI
 timerctl.exe status          — состояние и остаток.
@@ -75,7 +75,7 @@ widget без активного таймера открывает главно�
 отсутствие ответа само по себе не доказывает, что действие не применилось.
 
 Снимок состояния
-version: 1; appVersion: "2.6.0".
+version: 1; appVersion: "2.6.1".
 timingMode: timer / schedule.
 state: idle / running / paused / completed / error.
 remainingSeconds: остаток в секундах, округлённый вверх.
@@ -100,8 +100,13 @@ completed означает передачу Windows запроса выключ�
 Настройки POST /v1/settings
 theme                  "dark" / "light" / "system".
 defaultAction          "shutdown" / "hibernate" для выбора в интерфейсе.
+defaultTimingMode      "timer" / "schedule" для выбора режима при запуске.
 scheduleTimeOnly       bool для выбора ближайшего наступления времени без поля даты.
-scheduleNextHour       bool для подстановки ближайшего полного часа вместо времени через час.
+scheduleInitialTime    "now" / "later" / "hour". Текущее время, через час или
+                       через час с округлением вверх до полного часа.
+scheduleNextHour       совместимое поле. В GET равно true для "hour".
+                       В POST true задаёт "hour", false — "later".
+                       При наличии scheduleInitialTime используется оно.
 presetMinutes          ровно 7 целых чисел, каждое 1–10080. Первый — по умолчанию.
 defaultSeconds         совместимое поле. В GET равно первому интервалу в секундах.
                        В POST запрашивает перенос этого интервала на первое место.

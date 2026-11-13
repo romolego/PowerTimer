@@ -8,12 +8,22 @@ namespace PowerTimer {
         const int CurrentSchemaVersion = 3;
         const int InitialPresetMinutes = 120;
         int legacyDefaultSeconds;
+        bool legacyScheduleNextHour;
+        string initialTime;
 
         public int schemaVersion { get; set; }
         public string theme { get; set; }
         public string defaultAction { get; set; }
+        public string defaultTimingMode { get; set; }
         public bool scheduleTimeOnly { get; set; }
-        public bool scheduleNextHour { get; set; }
+        public string scheduleInitialTime {
+            get { return initialTime ?? (legacyScheduleNextHour ? "hour" : "now"); }
+            set { initialTime = value; }
+        }
+        public bool scheduleNextHour {
+            get { return scheduleInitialTime == "hour"; }
+            set { legacyScheduleNextHour = value; }
+        }
         // Keep the old API field derived from the first preset. Its setter reads old files.
         public int defaultSeconds {
             get { return presetMinutes[0] * 60; }
@@ -35,7 +45,7 @@ namespace PowerTimer {
         public double? widgetX { get; set; }
         public double? widgetY { get; set; }
         public Preferences() {
-            theme = "dark"; defaultAction = TimerEngine.ShutdownAction; addSeconds = 600;
+            theme = "dark"; defaultAction = TimerEngine.ShutdownAction; defaultTimingMode = "timer"; addSeconds = 600;
             presetMinutes = new int[] { InitialPresetMinutes, 10, 15, 30, 60, 180, 240 };
             keepAwake = closeToTray = minimizeToTray = startInTray = notifyBeforeShutdown = true;
             widgetTopmost = rememberWidgetPosition = true; widgetSize = "small"; widgetOpacity = 100;
@@ -44,6 +54,7 @@ namespace PowerTimer {
             var copy = (Preferences)MemberwiseClone(); copy.presetMinutes = (int[])presetMinutes.Clone(); return copy;
         }
         static bool ValidDuration(int n) { return n >= 60 && n <= TimerEngine.MaximumSeconds && n % 60 == 0; }
+        static bool ValidInitialTime(string value) { return value == "now" || value == "later" || value == "hour"; }
         void PutPresetFirst(int minutes) {
             int index = Array.IndexOf(presetMinutes, minutes);
             if (index < 0) index = presetMinutes.Length - 1;
@@ -53,6 +64,8 @@ namespace PowerTimer {
         public void Normalize() {
             if (theme != "dark" && theme != "light" && theme != "system") theme = "dark";
             if (!TimerEngine.IsSupportedAction(defaultAction)) defaultAction = TimerEngine.ShutdownAction;
+            if (defaultTimingMode != "timer" && defaultTimingMode != "schedule") defaultTimingMode = "timer";
+            if (!ValidInitialTime(scheduleInitialTime)) scheduleInitialTime = "now";
             if (!ValidDuration(addSeconds)) addSeconds = 600;
             if (presetMinutes != null && presetMinutes.Length == 8) presetMinutes = new List<int>(presetMinutes).GetRange(0, 7).ToArray();
             bool valid = presetMinutes != null && presetMinutes.Length == 7;
@@ -72,6 +85,8 @@ namespace PowerTimer {
         public void Validate() {
             if (theme != "dark" && theme != "light" && theme != "system") throw new ArgumentException("Неизвестная тема.");
             if (!TimerEngine.IsSupportedAction(defaultAction)) throw new ArgumentException("Выберите выключение или гибернацию.");
+            if (defaultTimingMode != "timer" && defaultTimingMode != "schedule") throw new ArgumentException("Выберите режим по умолчанию.");
+            if (!ValidInitialTime(scheduleInitialTime)) throw new ArgumentException("Выберите начальное время.");
             if (!ValidDuration(addSeconds)) throw new ArgumentException("Шаг добавления: от 1 минуты до 7 суток.");
             if (presetMinutes == null || presetMinutes.Length != 7) throw new ArgumentException("Нужно ровно 7 интервалов.");
             foreach (int minutes in presetMinutes) if (minutes < 1 || minutes > 10080) throw new ArgumentException("Каждый интервал: от 1 до 10080 минут.");
@@ -94,13 +109,16 @@ namespace PowerTimer {
         public static Preferences Patch(Preferences current, Dictionary<string, object> data) {
             Preferences next = current.Clone();
             int? requestedDefaultSeconds = null;
+            bool? requestedNextHour = null;
             foreach (var pair in data) {
                 string key = pair.Key; object value = pair.Value;
                 switch (key) {
                     case "theme": next.theme = Text(value, key); break;
                     case "defaultAction": next.defaultAction = Text(value, key); break;
+                    case "defaultTimingMode": next.defaultTimingMode = Text(value, key); break;
                     case "scheduleTimeOnly": next.scheduleTimeOnly = Boolean(value, key); break;
-                    case "scheduleNextHour": next.scheduleNextHour = Boolean(value, key); break;
+                    case "scheduleInitialTime": next.scheduleInitialTime = Text(value, key); break;
+                    case "scheduleNextHour": requestedNextHour = Boolean(value, key); break;
                     case "defaultSeconds":
                         int seconds = Integer(value, key);
                         if (!ValidDuration(seconds)) throw new ArgumentException("Интервал по умолчанию должен быть от 1 минуты до 7 суток.");
@@ -124,6 +142,8 @@ namespace PowerTimer {
                     default: throw new ArgumentException("Неизвестный параметр: " + key);
                 }
             }
+            if (requestedNextHour.HasValue && !data.ContainsKey("scheduleInitialTime"))
+                next.scheduleInitialTime = requestedNextHour.Value ? "hour" : "later";
             next.Validate();
             if (requestedDefaultSeconds.HasValue) next.PutPresetFirst(requestedDefaultSeconds.Value / 60);
             return next;

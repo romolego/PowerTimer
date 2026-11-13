@@ -94,7 +94,10 @@
       <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger></ControlTemplate.Triggers>
      </ControlTemplate></ToggleButton.Template>
     </ToggleButton>
-    <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" Margin="10,6,32,6" HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False"/>
+    <ContentPresenter x:Name="SelectionDisplay" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" Margin="10,6,32,6" HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False"/>
+    <TextBox x:Name="PART_EditableTextBox" Visibility="Collapsed" Margin="1,1,32,1" Padding="6,4" MinHeight="0"
+             Background="Transparent" BorderThickness="0" Foreground="{TemplateBinding Foreground}" FontSize="{TemplateBinding FontSize}"
+             IsReadOnly="{TemplateBinding IsReadOnly}" MaxLength="5" AutomationProperties.Name="{TemplateBinding AutomationProperties.Name}"/>
     <Border x:Name="ComboFocus" BorderBrush="Transparent" BorderThickness="1" CornerRadius="8" IsHitTestVisible="False"/>
     <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
      <Border Background="{DynamicResource WindowBg}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="9" MinWidth="{TemplateBinding ActualWidth}" Margin="0,4,0,0" Padding="2,4" MaxHeight="240">
@@ -103,6 +106,11 @@
     </Popup>
    </Grid>
    <ControlTemplate.Triggers>
+    <Trigger Property="IsEditable" Value="True">
+     <Setter TargetName="SelectionDisplay" Property="Visibility" Value="Collapsed"/>
+     <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+     <Setter Property="IsTabStop" Value="False"/>
+    </Trigger>
     <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboFocus" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
     <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger>
    </ControlTemplate.Triggers>

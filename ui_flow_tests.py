@@ -25,16 +25,44 @@ def check_tray_menu():
 def check_schedule():
     before = call('v1/settings')['settings']
     try:
-        call('v1/settings', {'scheduleTimeOnly': False, 'scheduleNextHour': False})
-        change('main', 'TimingModeSelect', 'select', 'schedule')
+        click('main', 'SettingsButton')
+        change('settings', 'DefaultTimingModeSelect', 'select', 'schedule')
+        change('settings', 'ScheduleDateOption', 'select', 'date')
+        change('settings', 'ScheduleTimeOption', 'select', 'now')
+        assert not 'DefaultPresetExplanation' in ui('settings')
+        click('settings', 'SaveSettingsButton')
         controls = ui()
         assert controls['ScheduleDate']['visible'] and not controls['Presets']['visible']
+        assert 'SchedulePreview' not in controls
+        if controls['ScheduleDate']['value'] == datetime.now().date().isoformat():
+            assert not controls['StartButton']['enabled']
         call('v1/test/interaction', {'window': 'main', 'control': 'ScheduleDate', 'action': 'openCalendar'})
+        last_day = (datetime.now() + timedelta(days=7)).date()
+        change('main', 'ScheduleDate', 'date', last_day.isoformat())
+        try:
+            change('main', 'ScheduleDate', 'date', (last_day + timedelta(days=1)).isoformat())
+        except HTTPError as error:
+            assert error.code == 400
+        else:
+            raise AssertionError('Calendar accepted a date beyond the limit')
+        assert ui()['ScheduleDate']['value'] == last_day.isoformat()
+        if (datetime.now() + timedelta(days=7)).hour < 23:
+            change('main', 'ScheduleClock', 'text', '23:59')
+            assert not ui()['StartButton']['enabled']
+            try:
+                change('main', 'ScheduleClock', 'select', '23:45')
+            except HTTPError as error:
+                assert error.code == 400
+            else:
+                raise AssertionError('Dropdown offered a time beyond the limit')
         change('main', 'ScheduleClock', 'text', '25:00')
-        assert click('main', 'StartButton')['state'] == 'idle'
-        assert ui()['NoticeText']['visible']
-        target = (datetime.now() + timedelta(days=1)).replace(hour=23, minute=30, second=0, microsecond=0)
+        assert not ui()['StartButton']['enabled']
+        target = (datetime.now() + timedelta(days=1)).replace(hour=23, minute=37, second=0, microsecond=0)
         change('main', 'ScheduleDate', 'date', target.date().isoformat())
+        change('main', 'ScheduleClock', 'dropdown', True)
+        change('main', 'ScheduleClock', 'select', '23:30')
+        change('main', 'ScheduleClock', 'dropdown', False)
+        assert ui()['ScheduleClock']['value'] == '23:30' and ui()['StartButton']['enabled']
         change('main', 'ScheduleClock', 'text', target.strftime('%H:%M'))
         change('main', 'PowerActionSelect', 'select', 'hibernate')
         call('v1/test/render', {'suffix': 'schedule-input'})
@@ -45,15 +73,23 @@ def check_schedule():
         click('main', 'WidgetButton')
         assert ui('widget')['WidgetDeadline']['visible']
         call('v1/test/render', {'suffix': 'schedule-active'})
+        moved = call('v1/test/interaction', {'window': 'widget', 'action': 'move', 'x': 0, 'y': 0})
+        call('v1/ui', {'mode': 'settings'})
+        reset_position = click('settings', 'ResetWidgetPosition')
+        assert (reset_position['widgetLeft'], reset_position['widgetTop']) != (moved['widgetLeft'], moved['widgetTop'])
+        assert reset_position['deadlineUtc'] == scheduled['deadlineUtc']
+        click('settings', 'CancelSettingsButton')
         paused = call('v1/pause', {})
         assert paused['deadlineUtc'] == scheduled['deadlineUtc']
         resumed = call('v1/resume', {})
         assert resumed['deadlineUtc'] == scheduled['deadlineUtc']
         call('v1/timer', method='DELETE')
-        call('v1/settings', {'scheduleTimeOnly': True, 'scheduleNextHour': True})
+        call('v1/settings', {'scheduleTimeOnly': True, 'scheduleInitialTime': 'hour'})
         assert not ui()['ScheduleDate']['visible'] and ui()['ScheduleClock']['value'].endswith(':00')
+        call('v1/settings', {'scheduleInitialTime': 'now'})
+        assert not ui()['StartButton']['enabled']
         change('main', 'ScheduleClock', 'text', '00:00')
-        assert ui()['SchedulePreview']['value'].startswith('Завтра')
+        assert ui()['ScheduleTimeLabel']['value'] == 'Время · завтра'
         api_target = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(timespec='seconds')
         via_api = call('v1/schedule', {'at': api_target, 'action': 'shutdown'})
         assert via_api['timingMode'] == 'schedule' and via_api['action'] == 'shutdown'
@@ -69,7 +105,7 @@ def check_schedule():
         call('v1/ui', {'mode': 'show'})
         change('main', 'TimingModeSelect', 'select', 'timer')
         change('main', 'PowerActionSelect', 'select', before['defaultAction'])
-        call('v1/settings', {key: before[key] for key in ('scheduleTimeOnly', 'scheduleNextHour')})
+        call('v1/settings', {key: before[key] for key in ('defaultTimingMode', 'scheduleTimeOnly', 'scheduleInitialTime')})
 
 
 def main():

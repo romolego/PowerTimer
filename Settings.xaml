@@ -52,6 +52,14 @@
      <Border Style="{StaticResource SettingsSection}">
       <StackPanel>
        <TextBlock Text="Таймер" Style="{StaticResource SectionHeading}"/>
+       <Grid Margin="0,0,0,8">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions>
+        <TextBlock Text="Режим по умолчанию" VerticalAlignment="Center" FontSize="13"/>
+        <ComboBox x:Name="DefaultTimingModeSelect" Grid.Column="1" SelectedIndex="0" AutomationProperties.Name="Режим по умолчанию">
+         <ComboBoxItem Content="Таймер" Tag="timer"/>
+         <ComboBoxItem Content="Ко времени" Tag="schedule"/>
+        </ComboBox>
+       </Grid>
        <Grid Margin="0,0,0,12">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions>
         <TextBlock Text="Действие по умолчанию" VerticalAlignment="Center" FontSize="13"/>
@@ -67,6 +75,9 @@
           <TextBox x:Name="Preset0" Style="{StaticResource PresetEditor}" Margin="0" Padding="1,5" Background="Transparent" BorderBrush="Transparent" AutomationProperties.Name="Первый интервал по умолчанию в минутах"/>
           <Button x:Name="DefaultPresetHelp" Grid.Column="1" Content="?" Width="20" Height="20" Margin="0,0,4,0" Padding="0" VerticalAlignment="Center"
                   Foreground="{DynamicResource AccentBrush}" BorderBrush="{DynamicResource AccentBrush}" AutomationProperties.Name="Что означает первый интервал">
+           <Button.ToolTip>
+            <TextBlock Width="240" TextWrapping="Wrap" Text="При запуске в режиме «Таймер» автоматически выбирается первый интервал. Здесь можно изменить его длительность в минутах."/>
+           </Button.ToolTip>
            <Button.Template>
             <ControlTemplate TargetType="Button">
              <Border x:Name="HelpCircle" CornerRadius="10" BorderThickness="1" BorderBrush="{TemplateBinding BorderBrush}" Background="Transparent">
@@ -89,7 +100,6 @@
         <TextBox x:Name="Preset6" Style="{StaticResource PresetEditor}" AutomationProperties.Name="Интервал 7 в минутах"/>
         <TextBlock Text="Своё время" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
        </UniformGrid>
-       <TextBlock x:Name="DefaultPresetExplanation" Text="При запуске приложения автоматически выбирается первый интервал. Здесь можно изменить его длительность в минутах." Visibility="Collapsed" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
       </StackPanel>
      </Border>
      <Border Style="{StaticResource SettingsSection}">
@@ -107,6 +117,7 @@
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions>
         <TextBlock Text="Начальное время" VerticalAlignment="Center" FontSize="13"/>
         <ComboBox x:Name="ScheduleTimeOption" Grid.Column="1" SelectedIndex="0" AutomationProperties.Name="Начальное время">
+         <ComboBoxItem Content="Текущее время" Tag="now"/>
          <ComboBoxItem Content="Через час" Tag="later"/>
          <ComboBoxItem Content="Ближайший полный час" Tag="hour"/>
         </ComboBox>
@@ -129,10 +140,13 @@
        <TextBlock Text="Виджет" Style="{StaticResource SectionHeading}"/>
        <CheckBox x:Name="WidgetTopmostCheck" Content="Поверх других окон"/>
        <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <CheckBox x:Name="WidgetRememberPositionCheck" Content="Запоминать положение"/>
-        <Button x:Name="ResetWidgetPosition" Grid.Column="1" Content="Вернуть в угол" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="12" Padding="12,7"
-                ToolTip="После сохранения виджет вернётся в правый верхний угол экрана." AutomationProperties.Name="Вернуть виджет в правый верхний угол"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+         <TextBlock Text="{Binding Content, ElementName=WidgetRememberPositionCheck}" FontSize="13" VerticalAlignment="Center" Visibility="Hidden"/>
+         <Button x:Name="ResetWidgetPosition" Content="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                 Width="26" Height="26" Padding="0" Margin="8,0,0,0" VerticalAlignment="Center"
+                 ToolTip="Сбросить положение" AutomationProperties.Name="Сбросить положение виджета"/>
+        </StackPanel>
        </Grid>
        <Grid Margin="0,10,0,12">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions>
