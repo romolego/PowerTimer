@@ -37,6 +37,8 @@ namespace PowerTimer {
    }
    prefs = next; previewTheme = null;
    if (before.defaultAction != next.defaultAction) selectedPowerAction = next.defaultAction;
+   if (before.scheduleTimeOnly != next.scheduleTimeOnly || before.scheduleNextHour != next.scheduleNextHour)
+    InitializeScheduleInputs();
    ApplyPreferences(before.presetMinutes[0] != next.presetMinutes[0]);
    if (resetPosition || (before.rememberWidgetPosition && !next.rememberWidgetPosition)) PlaceWidget(false);
    SaveWidgetPosition(); Persist();
@@ -51,9 +53,8 @@ namespace PowerTimer {
   void WireSettings() {
    DragOn(Find<Grid>(settings, "SettingsDrag"), settings);
    settings.Closing += delegate(object s, System.ComponentModel.CancelEventArgs e) { if (exiting) return; e.Cancel = true; CancelSettings(); };
-   var defaultActionPicker = Find<ComboBox>(settings, "DefaultActionSelect");
    settings.PreviewKeyDown += delegate(object s, KeyEventArgs e) {
-    if (e.Key != Key.Escape || defaultActionPicker.IsDropDownOpen) return;
+    if (e.Key != Key.Escape || (Keyboard.FocusedElement is ComboBox && ((ComboBox)Keyboard.FocusedElement).IsDropDownOpen)) return;
     CancelSettings(); e.Handled = true;
    };
    Find<Button>(settings, "SettingsClose").Click += delegate { CancelSettings(); };
@@ -89,6 +90,8 @@ namespace PowerTimer {
    try {
     SelectTag("ThemeSelect", prefs.theme);
     SelectTag("DefaultActionSelect", prefs.defaultAction);
+    SelectTag("ScheduleDateOption", prefs.scheduleTimeOnly ? "time" : "date");
+    SelectTag("ScheduleTimeOption", prefs.scheduleNextHour ? "hour" : "later");
     for (int i = 0; i < 7; i++) Find<TextBox>(settings, "Preset" + i).Text = prefs.presetMinutes[i].ToString();
     SetCheck("KeepAwakeCheck", prefs.keepAwake); SetCheck("AutostartCheck", GetAutostart());
     SetCheck("StartupTrayCheck", prefs.startInTray); SetCheck("CloseToTrayCheck", prefs.closeToTray);
@@ -106,6 +109,8 @@ namespace PowerTimer {
   Preferences ReadSettingsDraft() {
    Preferences next = prefs.Clone();
    next.defaultAction = SelectedTag(Find<ComboBox>(settings, "DefaultActionSelect"));
+   next.scheduleTimeOnly = SelectedTag(Find<ComboBox>(settings, "ScheduleDateOption")) == "time";
+   next.scheduleNextHour = SelectedTag(Find<ComboBox>(settings, "ScheduleTimeOption")) == "hour";
    next.theme = SelectedTag(Find<ComboBox>(settings, "ThemeSelect"));
    for (int i = 0; i < 7; i++) next.presetMinutes[i] = InputInt(settings, "Preset" + i);
    next.keepAwake = Check("KeepAwakeCheck"); next.startWithWindows = Check("AutostartCheck"); next.startInTray = Check("StartupTrayCheck");

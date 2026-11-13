@@ -1,9 +1,10 @@
-POWER TIMER 2.5.2 — локальный HTTP API v1
+POWER TIMER 2.6.0 — локальный HTTP API v1
 
 CLI
 timerctl.exe status          — состояние и остаток.
 timerctl.exe after 30m       — запланировать выключение.
 timerctl.exe hibernate 30m   — запланировать гибернацию.
+timerctl.exe at 2026-11-14T23:30:00+07:00 hibernate
 timerctl.exe after 3.5h      — дробная длительность, точка в CLI.
 timerctl.exe pause
 timerctl.exe resume
@@ -35,6 +36,7 @@ Invoke-RestMethod -Uri ($api.baseUrl + 'v1/status') -Headers $headers
 GET    /v1/status          — снимок состояния, без выполнения действия питания.
 POST   /v1/timer           — {"seconds":3600} для выключения.
 POST   /v1/timer/hibernate — {"seconds":3600} для гибернации.
+POST   /v1/schedule        — {"at":"2026-11-14T23:30:00+07:00","action":"hibernate"}.
 DELETE /v1/timer           — отменить; повторная отмена допустима.
 POST   /v1/pause           — {}; заморозить остаток.
 POST   /v1/resume          — {}; продолжить паузу.
@@ -49,10 +51,15 @@ POST   /v1/app/exit        — {}; отменить таймер и заверш
 Для всех запросов нужен Authorization: Bearer <token>.
 Для POST нужен Content-Type: application/json. Тело — JSON-объект.
 seconds — JSON-число от 1 до 604800, строка и boolean не допускаются.
-Оба маршрута POST создают или заменяют таймер. Действие задаёт маршрут.
+Маршруты /v1/timer и /v1/timer/hibernate создают или заменяют таймер по длительности.
 Маршрут /v1/timer по-прежнему планирует выключение. Для гибернации
 используйте отдельный маршрут /v1/timer/hibernate, доступный с 2.4.0.
 Если гибернация недоступна в Windows, запуск или продолжение вернёт 409.
+Маршрут /v1/schedule принимает дату и время ISO 8601 с Z или смещением
+часового пояса и действие shutdown либо hibernate. Срок должен быть в будущем
+и в пределах семи суток. Команда at без действия планирует выключение.
+Продолжение после паузы сохраняет срок и возвращает 409, если срок прошёл.
+Для изменения назначенного срока отправьте новый запрос /v1/schedule.
 При продлении итоговый остаток также не должен превышать 604800 секунд.
 widget без активного таймера открывает главное окно. restore возвращает
 последнее представление или уже открытый диалог; его использует повторный запуск.
@@ -68,11 +75,12 @@ widget без активного таймера открывает главно�
 отсутствие ответа само по себе не доказывает, что действие не применилось.
 
 Снимок состояния
-version: 1; appVersion: "2.5.2".
+version: 1; appVersion: "2.6.0".
+timingMode: timer / schedule.
 state: idle / running / paused / completed / error.
 remainingSeconds: остаток в секундах, округлённый вверх.
 remaining: HH:MM:SS; null без активного таймера. Часы могут иметь 3 цифры.
-deadlineUtc, deadlineLocal: ISO 8601 для running; иначе null.
+deadlineUtc, deadlineLocal: ISO 8601 для running и для расписания на паузе.
 totalSeconds: длительность; testMode: true/false.
 action — "shutdown" или "hibernate". В idle показан выбор в главном окне.
 В остальных состояниях показано действие таймера.
@@ -85,13 +93,15 @@ effectiveTheme: dark / light; keepAwake, sleepPreventionActive: true/false.
 message: сообщение состояния двигателя.
 
 completed означает передачу Windows запроса выключения или гибернации.
-В --test запрос имитируется. Отсчёт монотонный;
-deadline пересчитывается по текущим системным часам. API и UI используют
+В --test запрос имитируется. Обычный отсчёт монотонный.
+Режим schedule хранит фиксированный срок. API и UI используют
 один таймер. Параллельные изменения выполняются последовательно.
 
 Настройки POST /v1/settings
 theme                  "dark" / "light" / "system".
 defaultAction          "shutdown" / "hibernate" для выбора в интерфейсе.
+scheduleTimeOnly       bool для выбора ближайшего наступления времени без поля даты.
+scheduleNextHour       bool для подстановки ближайшего полного часа вместо времени через час.
 presetMinutes          ровно 7 целых чисел, каждое 1–10080. Первый — по умолчанию.
 defaultSeconds         совместимое поле. В GET равно первому интервалу в секундах.
                        В POST запрашивает перенос этого интервала на первое место.

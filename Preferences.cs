@@ -12,6 +12,8 @@ namespace PowerTimer {
         public int schemaVersion { get; set; }
         public string theme { get; set; }
         public string defaultAction { get; set; }
+        public bool scheduleTimeOnly { get; set; }
+        public bool scheduleNextHour { get; set; }
         // Keep the old API field derived from the first preset. Its setter reads old files.
         public int defaultSeconds {
             get { return presetMinutes[0] * 60; }
@@ -97,6 +99,8 @@ namespace PowerTimer {
                 switch (key) {
                     case "theme": next.theme = Text(value, key); break;
                     case "defaultAction": next.defaultAction = Text(value, key); break;
+                    case "scheduleTimeOnly": next.scheduleTimeOnly = Boolean(value, key); break;
+                    case "scheduleNextHour": next.scheduleNextHour = Boolean(value, key); break;
                     case "defaultSeconds":
                         int seconds = Integer(value, key);
                         if (!ValidDuration(seconds)) throw new ArgumentException("Интервал по умолчанию должен быть от 1 минуты до 7 суток.");

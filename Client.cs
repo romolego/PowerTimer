@@ -50,11 +50,17 @@ namespace PowerTimer {
                 bool test = Array.IndexOf(args, "--test") >= 0;
                 var list = new List<string>(args); list.Remove("--test"); args = list.ToArray();
                 if (args.Length == 0 || args[0] == "help" || args[0] == "--help") {
-                    Console.WriteLine("timerctl status | after 30m | hibernate 30m | cancel | pause | resume | add 10m | show | widget | tray | settings | config | exit\nDuration: number + s/m/h (or seconds). --test connects only to the harmless test instance.\nCommands return JSON; exit code 0 = success, 1 = error. 'exit' cancels the timer and closes the app."); return 0;
+                    Console.WriteLine("timerctl status | after 30m | hibernate 30m | at ISO_TIMESTAMP [shutdown|hibernate] | cancel | pause | resume | add 10m | show | widget | tray | settings | config | exit\nDuration: number + s/m/h (or seconds). The timestamp needs Z or a UTC offset. --test connects only to the harmless test instance.\nCommands return JSON; exit code 0 = success, 1 = error. 'exit' cancels the timer and closes the app."); return 0;
                 }
                 string method = "POST", route; object body = new { };
                 switch (args[0]) {
                     case "status": method = "GET"; route = "v1/status"; body = null; break;
+                    case "at":
+                        if (args.Length < 2 || args.Length > 3)
+                            throw new ArgumentException("Укажите дату и время с часовым поясом и, при необходимости, действие shutdown или hibernate.");
+                        route = "v1/schedule";
+                        body = new { at = args[1], action = args.Length == 3 ? args[2] : "shutdown" };
+                        break;
                     case "after": case "hibernate": case "add":
                         if (args.Length != 2) throw new ArgumentException("Укажите длительность, например " + args[0] + " 30m.");
                         double seconds = ParseDuration(args[1]);

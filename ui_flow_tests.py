@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError
+
 from test_support import call, click, change, ui, reset, wait_for
 
 
@@ -17,6 +20,56 @@ def check_tray_menu():
         assert call('v1/test/ui')['trayMenu'] == active
         call('v1/timer', method='DELETE')
         assert call('v1/test/ui')['trayMenu'] == idle
+
+
+def check_schedule():
+    before = call('v1/settings')['settings']
+    try:
+        call('v1/settings', {'scheduleTimeOnly': False, 'scheduleNextHour': False})
+        change('main', 'TimingModeSelect', 'select', 'schedule')
+        controls = ui()
+        assert controls['ScheduleDate']['visible'] and not controls['Presets']['visible']
+        call('v1/test/interaction', {'window': 'main', 'control': 'ScheduleDate', 'action': 'openCalendar'})
+        change('main', 'ScheduleClock', 'text', '25:00')
+        assert click('main', 'StartButton')['state'] == 'idle'
+        assert ui()['NoticeText']['visible']
+        target = (datetime.now() + timedelta(days=1)).replace(hour=23, minute=30, second=0, microsecond=0)
+        change('main', 'ScheduleDate', 'date', target.date().isoformat())
+        change('main', 'ScheduleClock', 'text', target.strftime('%H:%M'))
+        change('main', 'PowerActionSelect', 'select', 'hibernate')
+        call('v1/test/render', {'suffix': 'schedule-input'})
+        scheduled = click('main', 'StartButton')
+        assert scheduled['state'] == 'running' and scheduled['action'] == 'hibernate'
+        assert scheduled['timingMode'] == 'schedule'
+        assert datetime.fromisoformat(scheduled['deadlineLocal']).replace(tzinfo=None) == target
+        click('main', 'WidgetButton')
+        assert ui('widget')['WidgetDeadline']['visible']
+        call('v1/test/render', {'suffix': 'schedule-active'})
+        paused = call('v1/pause', {})
+        assert paused['deadlineUtc'] == scheduled['deadlineUtc']
+        resumed = call('v1/resume', {})
+        assert resumed['deadlineUtc'] == scheduled['deadlineUtc']
+        call('v1/timer', method='DELETE')
+        call('v1/settings', {'scheduleTimeOnly': True, 'scheduleNextHour': True})
+        assert not ui()['ScheduleDate']['visible'] and ui()['ScheduleClock']['value'].endswith(':00')
+        change('main', 'ScheduleClock', 'text', '00:00')
+        assert ui()['SchedulePreview']['value'].startswith('Завтра')
+        api_target = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(timespec='seconds')
+        via_api = call('v1/schedule', {'at': api_target, 'action': 'shutdown'})
+        assert via_api['timingMode'] == 'schedule' and via_api['action'] == 'shutdown'
+        try:
+            call('v1/schedule', {'at': '2026-11-13T12:00:00', 'action': 'shutdown'})
+        except HTTPError as error:
+            assert error.code == 400
+        else:
+            raise AssertionError('Schedule accepted a timestamp without a time zone')
+        assert call('v1/status')['deadlineUtc'] == via_api['deadlineUtc']
+    finally:
+        call('v1/timer', method='DELETE')
+        call('v1/ui', {'mode': 'show'})
+        change('main', 'TimingModeSelect', 'select', 'timer')
+        change('main', 'PowerActionSelect', 'select', before['defaultAction'])
+        call('v1/settings', {key: before[key] for key in ('scheduleTimeOnly', 'scheduleNextHour')})
 
 
 def main():
@@ -72,7 +125,8 @@ def main():
     assert ui()['PowerActionSelect']['enabled']
     change('main', 'PowerActionSelect', 'select', 'shutdown')
     call('v1/test/render', {'suffix': 'idle'})
-    print('PASS: tray states and both tray presets, action selector, start, pause, resume, cancel, custom dialog, widget double-click and controls.')
+    check_schedule()
+    print('PASS: countdown and scheduled modes, date/time input and time-only defaults, tray, pause/resume, cancel and widget.')
 
 
 if __name__ == '__main__':

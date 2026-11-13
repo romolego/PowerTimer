@@ -3,7 +3,10 @@
  <Border x:Name="WidgetRoot" CornerRadius="12" Background="{DynamicResource WindowBg}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="10,7,6,7">
   <Grid x:Name="WidgetDrag" MinHeight="32" Background="Transparent">
    <Grid.ColumnDefinitions><ColumnDefinition Width="132"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
-   <TextBlock x:Name="WidgetCountdown" Text="00:00:00" FontFamily="Consolas" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}"/>
+   <StackPanel VerticalAlignment="Center">
+    <TextBlock x:Name="WidgetDeadline" Visibility="Collapsed" FontSize="11" Foreground="{DynamicResource MutedBrush}" AutomationProperties.Name="Назначенное время"/>
+    <TextBlock x:Name="WidgetCountdown" Text="00:00:00" FontFamily="Consolas" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+   </StackPanel>
    <StackPanel x:Name="WidgetControls" Grid.Column="1" Orientation="Horizontal" Visibility="Collapsed" Margin="3,0,5,0">
     <Border Background="{DynamicResource RaisedBg}" CornerRadius="8" Padding="2" Margin="0,0,7,0">
      <StackPanel Orientation="Horizontal">

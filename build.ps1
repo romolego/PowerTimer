@@ -16,12 +16,12 @@ $ui = @('/target:winexe', '/platform:anycpu', '/main:PowerTimer.Program',
     '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll', '/r:System.Xaml.dll')
 foreach ($assembly in @('PresentationFramework', 'PresentationCore', 'WindowsBase')) { $ui += '/r:' + (Join-Path $wpf ($assembly + '.dll')) }
 foreach ($resource in @('Main.xaml', 'Widget.xaml', 'Custom.xaml', 'Settings.xaml', 'Styles.xaml', 'icon.ico')) { $ui += '/resource:' + (Join-Path $src $resource) + ',PowerTimer.' + $resource }
-$sources = @('Core.cs', 'Api.cs', 'App.cs', 'Program.cs', 'Storage.cs', 'Client.cs', 'DurationInput.cs', 'Preferences.cs', 'Theme.cs', 'SettingsUi.cs', 'TestHarness.cs') | ForEach-Object { Join-Path $src $_ }
+$sources = @('Core.cs', 'Api.cs', 'App.cs', 'Program.cs', 'Storage.cs', 'Client.cs', 'DurationInput.cs', 'ScheduleTime.cs', 'Preferences.cs', 'Theme.cs', 'SettingsUi.cs', 'TestHarness.cs') | ForEach-Object { Join-Path $src $_ }
 & $compiler @shared @ui @sources
 if ($LASTEXITCODE -ne 0) { throw 'GUI build failed' }
 & $compiler @shared '/target:exe' '/main:PowerTimer.ControlCli' ('/out:' + (Join-Path $target 'timerctl.exe')) (Join-Path $src 'Client.cs')
 if ($LASTEXITCODE -ne 0) { throw 'CLI build failed' }
-$testSources = @('Core.cs', 'Api.cs', 'Client.cs', 'DurationInput.cs', 'Preferences.cs', 'Storage.cs', 'CoreTests.cs', 'ReliabilityTests.cs') | ForEach-Object { Join-Path $src $_ }
+$testSources = @('Core.cs', 'Api.cs', 'Client.cs', 'DurationInput.cs', 'ScheduleTime.cs', 'Preferences.cs', 'Storage.cs', 'CoreTests.cs', 'ReliabilityTests.cs') | ForEach-Object { Join-Path $src $_ }
 & $compiler @shared '/target:exe' ('/out:' + (Join-Path $target 'CoreTests.exe')) @testSources '/main:PowerTimer.CoreTests'
 if ($LASTEXITCODE -ne 0) { throw 'Test build failed' }
 if (-not $SkipTests) {

@@ -16,7 +16,10 @@
     <StackPanel>
      <Grid Margin="0,0,0,18">
       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <TextBlock Text="Таймер" FontSize="26" FontWeight="SemiBold" VerticalAlignment="Center"/>
+      <ComboBox x:Name="TimingModeSelect" Width="202" HorizontalAlignment="Left" FontSize="26" FontWeight="SemiBold" Background="Transparent" BorderBrush="Transparent" SelectedIndex="0" SelectedValuePath="Tag" AutomationProperties.Name="Режим таймера">
+       <ComboBoxItem Content="Таймер" Tag="timer" FontSize="15"/>
+       <ComboBoxItem Content="Ко времени" Tag="schedule" FontSize="15"/>
+      </ComboBox>
       <ComboBox x:Name="PowerActionSelect" Grid.Column="1" Width="150" SelectedIndex="0" SelectedValuePath="Tag" AutomationProperties.Name="Действие таймера">
        <ComboBoxItem Content="Выключение" Tag="shutdown"/>
        <ComboBoxItem Content="Гибернация" Tag="hibernate"/>
@@ -34,6 +37,53 @@
       </StackPanel>
      </Border>
      <UniformGrid x:Name="Presets" Columns="4" Rows="2" Margin="-3,0,-3,14"/>
+     <StackPanel x:Name="ScheduleInputs" Visibility="Collapsed" Margin="0,0,0,14">
+      <Grid>
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+       <StackPanel x:Name="ScheduleDateField" Margin="0,0,10,0">
+        <TextBlock Text="Дата" Margin="0,0,0,5" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
+        <DatePicker x:Name="ScheduleDate" Height="35" Language="ru-RU" SelectedDateFormat="Short" AutomationProperties.Name="Дата действия"
+                    Foreground="{DynamicResource TextBrush}" Background="{DynamicResource RaisedBg}" BorderBrush="{DynamicResource BorderBrush}">
+         <DatePicker.Resources>
+          <Style TargetType="DatePickerTextBox">
+           <Setter Property="IsReadOnly" Value="True"/>
+           <Setter Property="HorizontalContentAlignment" Value="Center"/>
+           <Setter Property="Template">
+            <Setter.Value>
+             <ControlTemplate TargetType="DatePickerTextBox">
+              <Grid>
+               <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
+               <ContentControl x:Name="PART_Watermark" Visibility="Collapsed" Focusable="False" IsHitTestVisible="False"/>
+              </Grid>
+             </ControlTemplate>
+            </Setter.Value>
+           </Setter>
+          </Style>
+         </DatePicker.Resources>
+         <DatePicker.Template>
+          <ControlTemplate TargetType="DatePicker">
+           <Border x:Name="PART_Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="8">
+            <Grid>
+             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="34"/></Grid.ColumnDefinitions>
+             <DatePickerTextBox x:Name="PART_TextBox" Foreground="{TemplateBinding Foreground}"/>
+             <Button x:Name="PART_Button" Grid.Column="1" Content="&#xE787;" FontFamily="Segoe MDL2 Assets" FontSize="15" Padding="0" Background="Transparent" BorderBrush="Transparent" AutomationProperties.Name="Открыть календарь"/>
+             <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" StaysOpen="False"/>
+            </Grid>
+           </Border>
+           <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="PART_Root" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
+           </ControlTemplate.Triggers>
+          </ControlTemplate>
+         </DatePicker.Template>
+        </DatePicker>
+       </StackPanel>
+       <StackPanel x:Name="ScheduleTimeField" Grid.Column="1">
+        <TextBlock Text="Время" Margin="0,0,0,5" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
+        <TextBox x:Name="ScheduleClock" MaxLength="5" Height="35" AutomationProperties.Name="Время действия в формате ЧЧ:ММ"/>
+       </StackPanel>
+      </Grid>
+      <TextBlock x:Name="SchedulePreview" Margin="0,9,0,0" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
+     </StackPanel>
      <Button x:Name="StartButton" Content="Запустить" Height="42" Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource AccentTextBrush}" BorderBrush="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
      <UniformGrid x:Name="ActiveActions" Columns="2" Visibility="Collapsed" Margin="-3,0,-3,0" Height="42">
       <Button x:Name="PauseButton" Content="Пауза" Margin="3,0"/>

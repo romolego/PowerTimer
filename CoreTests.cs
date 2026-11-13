@@ -99,6 +99,52 @@ namespace PowerTimer {
                 }
             }
         }
+        static void ScheduleChecks() {
+            var clock = new FakeClock();
+            string executed = null;
+            var timer = new TimerEngine(clock, action => executed = action);
+            var target = new DateTimeOffset(clock.UtcNow.AddHours(1));
+            Reject(delegate { timer.StartAt(target.AddHours(-2), TimerEngine.ShutdownAction); }, "past schedule rejected");
+            Reject(delegate { timer.StartAt(target.AddDays(8), TimerEngine.ShutdownAction); }, "schedule beyond limit rejected");
+            timer.StartAt(target, TimerEngine.HibernateAction);
+            clock.Advance(20);
+            timer.Pause();
+            clock.Advance(40);
+            Check(timer.Deadline == target.UtcDateTime && timer.Remaining == 3580, "schedule pause freezes the display and retains the deadline");
+            timer.Resume();
+            Check(timer.Remaining == 3540, "schedule resumes towards the same deadline");
+            Reject(delegate { timer.Extend(10); }, "fixed deadline cannot be extended");
+            TimerRecord record = timer.Export();
+            timer.Restore(record);
+            Check(timer.State == "paused" && timer.Deadline == target.UtcDateTime && timer.ScheduledAction == TimerEngine.HibernateAction, "restore scheduled hibernation without arming it");
+            timer.Resume();
+            clock.Advance(3540);
+            timer.Tick();
+            Check(executed == TimerEngine.HibernateAction && timer.State == "completed", "schedule runs the chosen action at the deadline");
+            executed = null;
+            timer.StartAt(new DateTimeOffset(clock.UtcNow.AddSeconds(10)), TimerEngine.ShutdownAction);
+            timer.Pause();
+            clock.Advance(11);
+            Reject(timer.Resume, "a missed paused schedule cannot execute");
+            timer.Restore(timer.Export());
+            Check(!timer.Active && executed == null, "expired saved schedule is discarded");
+            timer.StartAt(new DateTimeOffset(clock.UtcNow.AddSeconds(10)), TimerEngine.ShutdownAction);
+            clock.UtcNow = clock.UtcNow.AddMinutes(5);
+            timer.Tick();
+            Check(timer.State == "idle" && executed == null, "a clock jump past the deadline does not execute a missed schedule");
+
+            var now = new DateTimeOffset(2026, 11, 13, 23, 45, 0, TimeSpan.Zero);
+            var zone = TimeZoneInfo.Utc;
+            var tomorrow = new DateTimeOffset(now.Date.AddDays(1).AddHours(23).AddMinutes(30), TimeSpan.Zero);
+            Check(ScheduleTime.Resolve("23:30", null, now, zone) == tomorrow, "time-only rolls to tomorrow");
+            Check(ScheduleTime.Resolve("23:30", now.Date, now, zone) < now, "explicit past date does not roll over");
+            Check(ScheduleTime.InitialLocal(now.DateTime, true) == now.Date.AddDays(1), "next full hour crosses midnight");
+            Check(ScheduleTime.InitialLocal(now.DateTime, false) == now.DateTime.AddHours(1), "one hour default crosses midnight");
+            Reject(delegate { ScheduleTime.Resolve("24:00", null, now, zone); }, "invalid clock time rejected");
+            Check(ScheduleTime.ParseTimestamp("2026-11-14T06:45:00+07:00") == now, "explicit offset parsed");
+            Check(ScheduleTime.ParseTimestamp("2026-11-13T23:45:00.001Z") == now.AddMilliseconds(1), "fractional UTC timestamp parsed");
+            Reject(delegate { ScheduleTime.ParseTimestamp("2026-11-13T23:45:00"); }, "implicit time zone rejected");
+        }
         public static int Main() {
             try {
                 int powered = 0; var clock = new FakeClock(); var timer = new TimerEngine(clock, delegate { powered++; });
@@ -148,6 +194,7 @@ namespace PowerTimer {
                 replaceDuringNotification.Start(1); clock.Advance(2); replaceDuringNotification.Tick();
                 Check(powered == beforePower && replaceDuringNotification.State == "running" && replaceDuringNotification.Remaining == 600, "replacement in completion callback supersedes finished timer");
                 ReliabilityChecks();
+                ScheduleChecks();
                 ApiChecks();
                 Console.WriteLine("PASS: " + count + " core and transport checks (fake clock and power backend). No system power calls."); return 0;
             } catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

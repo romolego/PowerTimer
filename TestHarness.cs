@@ -100,6 +100,26 @@ namespace PowerTimer {
                     textBox.Text = (string)value;
                     break;
                 }
+                case "date": {
+                    var picker = control as DatePicker;
+                    DateTime date;
+                    if (picker == null || !DateTime.TryParseExact(TestValue(data) as string, "yyyy-MM-dd",
+                            CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                        throw new ApiError(400, "date requires a DatePicker and yyyy-MM-dd");
+                    picker.SelectedDate = date;
+                    break;
+                }
+                case "openCalendar": {
+                    var picker = control as DatePicker;
+                    if (picker == null) throw new ApiError(400, "openCalendar requires a DatePicker");
+                    picker.ApplyTemplate();
+                    var button = picker.Template.FindName("PART_Button", picker) as Button;
+                    if (button == null) throw new ApiError(400, "Calendar button was not found");
+                    button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
+                    if (!picker.IsDropDownOpen) throw new InvalidOperationException("Calendar did not open");
+                    picker.IsDropDownOpen = false;
+                    break;
+                }
                 case "check": {
                     var checkBox = control as CheckBox;
                     object value = TestValue(data);
@@ -140,6 +160,8 @@ namespace PowerTimer {
             return Snapshot();
         }
         static object InspectControlValue(FrameworkElement element) {
+            var datePicker = element as DatePicker;
+            if (datePicker != null) return datePicker.SelectedDate.HasValue ? datePicker.SelectedDate.Value.ToString("yyyy-MM-dd") : null;
             var textBox = element as TextBox;
             if (textBox != null) return textBox.Text;
             var text = element as TextBlock;

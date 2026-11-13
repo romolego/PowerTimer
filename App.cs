@@ -28,7 +28,11 @@ namespace PowerTimer {
   readonly Application app; readonly string folder; readonly bool test;
   Preferences prefs; readonly TimerEngine engine; readonly SystemClock clock;
   readonly Window main, widget;
-  readonly ComboBox actionPicker;
+  readonly ComboBox actionPicker, timingModePicker;
+  readonly DatePicker scheduleDate;
+  readonly TextBox scheduleClock;
+  DateTimeOffset? schedulePreviewTarget;
+  bool loadingSchedule, selectingTimingMode, scheduleMode;
   Window settings, custom;
   int selectedSeconds, selectedIndex;
   string selectedPowerAction;
@@ -53,6 +57,9 @@ namespace PowerTimer {
    using (Stream r = Resource("Styles.xaml")) app.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Load(r));
    main = LoadWindow("Main.xaml"); widget = LoadWindow("Widget.xaml");
    actionPicker = Find<ComboBox>(main, "PowerActionSelect");
+   timingModePicker = Find<ComboBox>(main, "TimingModeSelect");
+   scheduleDate = Find<DatePicker>(main, "ScheduleDate");
+   scheduleClock = Find<TextBox>(main, "ScheduleClock");
    main.MaxHeight = Math.Max(320, SystemParameters.WorkArea.Height - 24);
    using (Stream r = Resource("icon.ico")) {
     trayIcon = new System.Drawing.Icon(r);
@@ -129,7 +136,8 @@ namespace PowerTimer {
     window.Closing += delegate(object s, System.ComponentModel.CancelEventArgs e) { if (exiting) return; e.Cancel = true; CloseRequested(); };
     window.StateChanged += delegate { if (window.WindowState == WindowState.Minimized && prefs.minimizeToTray) { HideAll(); window.WindowState = WindowState.Normal; } };
     window.PreviewKeyDown += delegate(object s, KeyEventArgs e) {
-     if (e.Key != Key.Escape || (window == main && actionPicker.IsDropDownOpen)) return;
+     if (e.Key != Key.Escape ||
+         (window == main && (actionPicker.IsDropDownOpen || timingModePicker.IsDropDownOpen || scheduleDate.IsDropDownOpen))) return;
      HideAll(); e.Handled = true;
     };
    }
@@ -144,12 +152,82 @@ namespace PowerTimer {
     selectedPowerAction = action;
     Update();
    };
-   Click(main, "StartButton", delegate { StartTimer(selectedSeconds, CurrentPowerAction); });
+   timingModePicker.SelectionChanged += delegate {
+    if (engine.Active || selectingTimingMode) return;
+    scheduleMode = SelectedTag(timingModePicker) == "schedule";
+    if (scheduleMode) InitializeScheduleInputs();
+    uiNotice = null;
+    Update();
+   };
+   scheduleDate.SelectedDateChanged += delegate { ScheduleInputChanged(); };
+   scheduleClock.TextChanged += delegate { ScheduleInputChanged(); };
+   Click(main, "StartButton", StartFromMain);
    Click(main, "PauseButton", TogglePause); Click(main, "CancelButton", engine.Cancel);
    Click(widget, "WidgetPause", delegate { if (engine.Active) TogglePause(); else StartTimer(selectedSeconds, CurrentPowerAction); });
    Click(widget, "WidgetExpandButton", delegate { SetWidgetExpanded(!widgetExpanded); });
    Click(widget, "WidgetCancel", engine.Cancel); Click(widget, "WidgetOpenMain", ShowMain); Click(widget, "WidgetHide", HideAll);
    widget.SizeChanged += delegate { if (initialized && widget.IsVisible) ClampWidget(); };
+  }
+  void ScheduleInputChanged() {
+   if (loadingSchedule) return;
+   UpdateSchedulePreview();
+   if (!engine.Active && uiNotice != null) {
+    uiNotice = null;
+    Update();
+    ScheduleTick();
+   }
+  }
+  void InitializeScheduleInputs() {
+   DateTime now = clock.UtcNow.ToLocalTime();
+   DateTime initial = ScheduleTime.InitialLocal(now, prefs.scheduleNextHour);
+   loadingSchedule = true;
+   try {
+    scheduleDate.SelectedDate = null;
+    scheduleDate.DisplayDateStart = now.Date;
+    scheduleDate.DisplayDateEnd = now.Date.AddDays(7);
+    scheduleDate.SelectedDate = initial.Date;
+    scheduleDate.DisplayDate = initial.Date;
+    scheduleClock.Text = initial.ToString("HH:mm", CultureInfo.InvariantCulture);
+    var dateField = Find<StackPanel>(main, "ScheduleDateField");
+    dateField.Visibility = prefs.scheduleTimeOnly ? Visibility.Collapsed : Visibility.Visible;
+    var timeField = Find<StackPanel>(main, "ScheduleTimeField");
+    Grid.SetColumn(timeField, prefs.scheduleTimeOnly ? 0 : 1);
+    Grid.SetColumnSpan(timeField, prefs.scheduleTimeOnly ? 2 : 1);
+   } finally { loadingSchedule = false; }
+   UpdateSchedulePreview();
+  }
+  DateTimeOffset ResolveScheduleInput() {
+   if (!prefs.scheduleTimeOnly && !scheduleDate.SelectedDate.HasValue)
+    throw new ArgumentException("Выберите дату.");
+   DateTime? date = prefs.scheduleTimeOnly ? null : scheduleDate.SelectedDate;
+   return ScheduleTime.Resolve(scheduleClock.Text, date, new DateTimeOffset(clock.UtcNow), TimeZoneInfo.Local);
+  }
+  void UpdateSchedulePreview() {
+   var preview = Find<TextBlock>(main, "SchedulePreview");
+   try {
+    DateTimeOffset target = ResolveScheduleInput();
+    schedulePreviewTarget = target;
+    DateTime local = target.LocalDateTime;
+    DateTime today = clock.UtcNow.ToLocalTime().Date;
+    string day = local.Date == today ? "Сегодня" : local.Date == today.AddDays(1) ? "Завтра" : local.ToString("dd.MM.yyyy");
+    preview.Text = day + " · " + local.ToString("HH:mm");
+   } catch (ArgumentException) {
+    schedulePreviewTarget = null;
+    preview.Text = "";
+   }
+   preview.Visibility = schedulePreviewTarget.HasValue ? Visibility.Visible : Visibility.Collapsed;
+  }
+  void StartFromMain() {
+   if (!scheduleMode) {
+    StartTimer(selectedSeconds, CurrentPowerAction);
+    return;
+   }
+   DateTimeOffset target = ResolveScheduleInput();
+   if (schedulePreviewTarget.HasValue && target != schedulePreviewTarget.Value) {
+    UpdateSchedulePreview();
+    throw new InvalidOperationException("Это время уже прошло. Проверьте новую дату и нажмите «Запустить» ещё раз.");
+   }
+   StartSchedule(target, CurrentPowerAction);
   }
   static bool Visible(Window window) { return window != null && window.IsVisible; }
   void EnsureCustom() {
@@ -219,7 +297,15 @@ namespace PowerTimer {
   }
   void ApplyTheme(string choice) { effectiveTheme = Theme.Apply(app, choice); lastRenderKey = null; if (main != null) Update(); }
   void OnSystemPreferences(object sender, UserPreferenceChangedEventArgs e) { OnUi(delegate { string choice = previewTheme ?? prefs.theme; if (choice == "system") ApplyTheme(choice); }); }
-  void OnTimeChanged(object sender, EventArgs e) { OnUi(delegate { Persist(true); lastRenderKey = null; Update(); }); }
+  void OnTimeChanged(object sender, EventArgs e) {
+   OnUi(delegate {
+    TimeZoneInfo.ClearCachedData();
+    Persist(true);
+    lastRenderKey = null;
+    Update();
+    ScheduleTick();
+   });
+  }
   void OnDisplaysChanged(object sender, EventArgs e) { OnUi(ClampWidget); }
   public void Start(bool hidden, bool compact, bool startup) {
    byte[] bytes = new byte[32]; using (var random = RandomNumberGenerator.Create()) random.GetBytes(bytes); string token = Convert.ToBase64String(bytes);
@@ -227,7 +313,7 @@ namespace PowerTimer {
    Store.Write(Path.Combine(folder, "api.json"), new { version = 1, baseUrl = "http://127.0.0.1:" + api.Port + "/", token = token, pid = Process.GetCurrentProcess().Id, testMode = test, executable = Assembly.GetExecutingAssembly().Location });
    initialized = true; Persist(true); UpdateSleep(); Update(); ScheduleTick();
    if (hidden || (startup && prefs.startInTray)) HideAll(); else if (compact || prefs.widgetMode) ShowWidget(); else ShowMain();
-   Log(test ? "Started TEST 2.5.2 (no power actions)" : "Started 2.5.2");
+   Log(test ? "Started TEST 2.6.0 (no power actions)" : "Started 2.6.0");
   }
   void OnUi(Action action) {
    if (!exiting && !exitPending && !app.Dispatcher.HasShutdownStarted)
@@ -243,6 +329,10 @@ namespace PowerTimer {
   void StartTimer(double seconds, string action) {
    EnsureActionAvailable(action);
    engine.Start(seconds, action);
+  }
+  void StartSchedule(DateTimeOffset target, string action) {
+   EnsureActionAvailable(action);
+   engine.StartAt(target, action);
   }
   void ResumeTimer() {
    if (engine.State == "paused") EnsureActionAvailable(engine.ScheduledAction);
@@ -265,8 +355,7 @@ namespace PowerTimer {
    ScheduleTick();
   }
   // No timer, polling, or disk heartbeat is needed when idle or paused.
-  // Running deadlines use a monotonic clock; the final tick is scheduled at
-  // the remaining fraction of a second instead of rounding the shutdown early.
+  // Check a running timer at least once per second and again at its deadline.
   void ScheduleTick() {
    if (ticker == null) return;
    ticker.Stop();
@@ -280,12 +369,22 @@ namespace PowerTimer {
    if (main == null || widget == null) return;
    string state = engine.State;
    bool active = engine.Active;
+   bool scheduled = active && engine.ScheduledUtc.HasValue;
+   bool showSchedule = active ? scheduled : scheduleMode;
    string action = CurrentPowerAction;
-   string key = state + ":" + Math.Ceiling(engine.Remaining).ToString(CultureInfo.InvariantCulture) + ":" + uiNotice + ":" + effectiveTheme + ":" + action;
+   string key = state + ":" + Math.Ceiling(engine.Remaining).ToString(CultureInfo.InvariantCulture) + ":" + uiNotice + ":" + effectiveTheme + ":" + action + ":" + showSchedule;
    if (key == lastRenderKey) return; lastRenderKey = key;
    if (active) actionPicker.IsDropDownOpen = false;
    if (SelectedTag(actionPicker) != action) actionPicker.SelectedValue = action;
    actionPicker.IsEnabled = !active;
+   string mode = showSchedule ? "schedule" : "timer";
+   if (active) timingModePicker.IsDropDownOpen = false;
+   if (SelectedTag(timingModePicker) != mode) {
+    selectingTimingMode = true;
+    try { timingModePicker.SelectedValue = mode; }
+    finally { selectingTimingMode = false; }
+   }
+   timingModePicker.IsEnabled = !active;
    bool hibernate = action == TimerEngine.HibernateAction;
    main.Title = (hibernate ? "Таймер гибернации" : "Таймер выключения") + (test ? " [ТЕСТ]" : "");
    string time = active ? TimerEngine.Format(engine.Remaining) : "--:--:--";
@@ -297,10 +396,14 @@ namespace PowerTimer {
     case "error": label = "ОШИБКА"; break;
     default: label = "ТАЙМЕР НЕ ЗАПУЩЕН"; break;
    }
-   string deadline = engine.Deadline.HasValue ? engine.Deadline.Value.ToLocalTime().ToString("dd.MM · HH:mm:ss") : "";
+   DateTime? due = engine.Deadline;
+   string deadline = due.HasValue ? due.Value.ToLocalTime().ToString("dd.MM · HH:mm:ss") : "";
    Brush color = (Brush)app.Resources[state == "running" && engine.Remaining <= 60 ? "UrgentBrush" : "AccentBrush"];
    Find<TextBlock>(main, "Countdown").Text = time; Find<TextBlock>(main, "Countdown").Foreground = color;
    Find<TextBlock>(widget, "WidgetCountdown").Text = time; Find<TextBlock>(widget, "WidgetCountdown").Foreground = color;
+   var widgetDeadline = Find<TextBlock>(widget, "WidgetDeadline");
+   widgetDeadline.Text = scheduled ? "К " + engine.ScheduledUtc.Value.ToLocalTime().ToString("dd.MM · HH:mm") : "";
+   widgetDeadline.Visibility = scheduled ? Visibility.Visible : Visibility.Collapsed;
 
    Find<TextBlock>(main, "StateText").Text = label; Find<TextBlock>(main, "DeadlineText").Text = deadline;
 
@@ -311,7 +414,8 @@ namespace PowerTimer {
    Find<Button>(main, "StartButton").Visibility = active ? Visibility.Collapsed : Visibility.Visible;
    Find<UniformGrid>(main, "ActiveActions").Visibility = active ? Visibility.Visible : Visibility.Collapsed;
    Find<Button>(main, "WidgetButton").Visibility = active ? Visibility.Visible : Visibility.Collapsed;
-   Find<UniformGrid>(main, "Presets").Visibility = active ? Visibility.Collapsed : Visibility.Visible;
+   Find<UniformGrid>(main, "Presets").Visibility = !active && !showSchedule ? Visibility.Visible : Visibility.Collapsed;
+   Find<StackPanel>(main, "ScheduleInputs").Visibility = !active && showSchedule ? Visibility.Visible : Visibility.Collapsed;
    Find<Button>(widget, "WidgetPause").Content = state == "running" ? "\uE769" : "\uE768";
    AutomationProperties.SetName(Find<Button>(widget, "WidgetPause"), state == "running" ? "Пауза" : active ? "Продолжить" : "Запустить");
    Find<Button>(widget, "WidgetCancel").IsEnabled = active;
@@ -406,8 +510,9 @@ namespace PowerTimer {
   }
   object Snapshot() {
    Size size = WidgetSize();
-   return new { version = 1, appVersion = "2.5.2", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
+   return new { version = 1, appVersion = "2.6.0", state = engine.State, remainingSeconds = (int)Math.Ceiling(engine.Remaining), remaining = engine.Active ? TimerEngine.Format(engine.Remaining) : null,
     deadlineUtc = engine.Deadline.HasValue ? engine.Deadline.Value.ToString("o") : null, deadlineLocal = engine.Deadline.HasValue ? engine.Deadline.Value.ToLocalTime().ToString("o") : null,
+    timingMode = engine.ScheduledUtc.HasValue ? "schedule" : "timer",
     totalSeconds = engine.Total, action = engine.State == "idle" ? selectedPowerAction : engine.ScheduledAction, testMode = test, ui = main.IsVisible ? "show" : widget.IsVisible ? "widget" : "tray", settingsOpen = Visible(settings), customOpen = Visible(custom), selectedSeconds = selectedSeconds, selectedIndex = selectedIndex,
     widgetExpanded = widgetExpanded, widgetWidth = size.Width, widgetHeight = size.Height, widgetLeft = widget.Left, widgetTop = widget.Top, widgetOpacity = widget.Opacity, widgetTopmost = widget.Topmost,
     effectiveTheme = effectiveTheme, keepAwake = prefs.keepAwake, sleepPreventionActive = sleepHeld, message = engine.Message };
@@ -426,7 +531,13 @@ namespace PowerTimer {
     if (method == "POST" && route == "/v1/settings") {
      if (Visible(settings)) throw new ApiError(409, "Settings are being edited"); CommitPreferences(Preferences.Patch(prefs, data), false); return SettingsSnapshot();
     }
-    if (method == "POST" && (route == "/v1/timer" || route == "/v1/timer/hibernate")) {
+    if (method == "POST" && route == "/v1/schedule") {
+     object target, action;
+     if (!data.TryGetValue("at", out target) || !(target is string)) throw new ApiError(400, "at must be an ISO 8601 timestamp with a time zone");
+     if (!data.TryGetValue("action", out action) || !TimerEngine.IsSupportedAction(action as string)) throw new ApiError(400, "action must be shutdown or hibernate");
+     StartSchedule(ScheduleTime.ParseTimestamp((string)target), (string)action);
+    }
+    else if (method == "POST" && (route == "/v1/timer" || route == "/v1/timer/hibernate")) {
      string action = route == "/v1/timer" ? TimerEngine.ShutdownAction : TimerEngine.HibernateAction;
      object suppliedAction;
      if (data.TryGetValue("action", out suppliedAction) && !action.Equals(suppliedAction))
